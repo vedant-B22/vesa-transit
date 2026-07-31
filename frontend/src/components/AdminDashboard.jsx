@@ -71,7 +71,9 @@ export default function AdminDashboard({ onLogout }) {
   const [scannedPassCode, setScannedPassCode] = useState('');
   const [scanResult, setScanResult] = useState(null);
 
-  const API_BASE = 'http://localhost:5001/api';
+  const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
+  const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
+  const WS_BASE = isDev ? 'ws://localhost:5001' : `ws://${window.location.host}`;
   const ws = useRef(null);
 
   useEffect(() => {
@@ -161,7 +163,7 @@ export default function AdminDashboard({ onLogout }) {
   };
 
   const initWebSocket = () => {
-    ws.current = new WebSocket('ws://localhost:5001');
+    ws.current = new WebSocket(WS_BASE);
 
     ws.current.onopen = () => {
       ws.current.send(JSON.stringify({

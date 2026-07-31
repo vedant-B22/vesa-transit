@@ -2,8 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import * as db from './database.js';
 import * as ai from './aiEngine.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const port = process.env.PORT || 5001;
@@ -927,6 +931,18 @@ app.get('/api/admin/reports/export', async (req, res) => {
     url: `/exports/${reportType}_report_${new Date().toISOString().split('T')[0]}.${format === 'pdf' ? 'pdf' : 'xlsx'}`,
     message: `Successfully generated ${reportType} report as ${format.toUpperCase()}`
   });
+});
+
+// Serve static frontend assets from dist folder in production
+const frontendDistPath = join(__dirname, '../frontend/dist');
+app.use(express.static(frontendDistPath));
+
+app.get('*', (req, res) => {
+  // If request matches API prefix, let it fail with 404 naturally
+  if (req.originalUrl.startsWith('/api')) {
+    return res.status(404).json({ error: 'API route not found' });
+  }
+  res.sendFile(join(frontendDistPath, 'index.html'));
 });
 
 // Create Server

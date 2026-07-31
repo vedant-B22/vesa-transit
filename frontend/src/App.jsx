@@ -21,8 +21,10 @@ export default function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
+    const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
+    const loginUrl = isDev ? 'http://localhost:5001/api/auth/login' : '/api/auth/login';
     try {
-      const res = await fetch('http://localhost:5001/api/auth/login', {
+      const res = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })

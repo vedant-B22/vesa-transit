@@ -115,8 +115,10 @@ export default function StudentApp({ userId, onLogout }) {
   // WebSocket Ref
   const ws = useRef(null);
 
-  // Base API url (assume running on port 5001)
-  const API_BASE = 'http://localhost:5001/api';
+  // Base API url (detect dev server environments vs served static hosts)
+  const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
+  const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
+  const WS_BASE = isDev ? 'ws://localhost:5001' : `ws://${window.location.host}`;
 
   useEffect(() => {
     fetchProfile();
@@ -153,7 +155,7 @@ export default function StudentApp({ userId, onLogout }) {
   const fetchTripDetails = async (routeId, busId) => {
     try {
       // Find driver/trip info
-      const res = await fetch(`http://localhost:5001/api/driver/trip/6`); // Mock check using driver 1/bus 101 path
+      const res = await fetch(`${API_BASE}/driver/trip/6`); // Mock check using driver 1/bus 101 path
       const data = await res.json();
       if (res.ok) {
         if (data.trip && data.trip.route_id === routeId) {
@@ -180,7 +182,7 @@ export default function StudentApp({ userId, onLogout }) {
   };
 
   const initWebSocket = () => {
-    ws.current = new WebSocket('ws://localhost:5001');
+    ws.current = new WebSocket(WS_BASE);
 
     ws.current.onopen = () => {
       console.log('Student socket opened. Registering...');

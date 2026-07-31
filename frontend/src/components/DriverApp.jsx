@@ -47,7 +47,9 @@ export default function DriverApp({ userId, onLogout }) {
   const simTimer = useRef(null);
   const ws = useRef(null);
 
-  const API_BASE = 'http://localhost:5001/api';
+  const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
+  const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
+  const WS_BASE = isDev ? 'ws://localhost:5001' : `ws://${window.location.host}`;
 
   useEffect(() => {
     fetchTrip();
@@ -88,7 +90,7 @@ export default function DriverApp({ userId, onLogout }) {
   };
 
   const initWebSocket = () => {
-    ws.current = new WebSocket('ws://localhost:5001');
+    ws.current = new WebSocket(WS_BASE);
 
     ws.current.onopen = () => {
       console.log('Driver socket opened. Registering...');
