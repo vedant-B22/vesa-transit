@@ -73,7 +73,8 @@ export default function AdminDashboard({ onLogout }) {
 
   const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
   const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
-  const WS_BASE = isDev ? 'ws://localhost:5001' : `ws://${window.location.host}`;
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
   const ws = useRef(null);
 
   useEffect(() => {
