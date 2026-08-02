@@ -546,6 +546,76 @@ app.post('/api/driver/trip/attendance/toggle', async (req, res) => {
   }
 });
 
+// Scan QR pass to check in student
+app.post('/api/admin/verify-scan', async (req, res) => {
+  const { qrCodePass } = req.body;
+  try {
+    const student = await db.get(
+      'SELECT id, name, roll_number, bus_id, user_id FROM students WHERE qr_code_pass = ?',
+      [qrCodePass]
+    );
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: `INVALID PASS: Code "${qrCodePass}" is not registered in the database.`
+      });
+    }
+
+    // Find if there is an active trip (status in ('started', 'en_route')) for this student's bus
+    const trip = await db.get(
+      `SELECT t.id, t.status FROM trips t
+       WHERE t.bus_id = ? AND t.status IN ('started', 'en_route')
+       ORDER BY t.created_at DESC LIMIT 1`,
+      [student.bus_id]
+    );
+
+    if (!trip) {
+      return res.json({
+        success: true,
+        studentName: student.name,
+        rollNumber: student.roll_number,
+        message: `VALID PASS: Welcome ${student.name}. No active trip is currently running for Bus ${student.bus_id}. Please scan when the trip has started.`
+      });
+    }
+
+    // Check if attendance record exists for this trip and student
+    const attRecord = await db.get(
+      'SELECT id FROM attendance WHERE trip_id = ? AND student_id = ?',
+      [trip.id, student.user_id]
+    );
+
+    if (attRecord) {
+      await db.run(
+        'UPDATE attendance SET status = "present" WHERE id = ?',
+        [attRecord.id]
+      );
+    } else {
+      await db.run(
+        'INSERT INTO attendance (trip_id, student_id, status) VALUES (?, ?, "present")',
+        [trip.id, student.user_id]
+      );
+    }
+
+    // Broadcast attendance update via websocket to frontend clients
+    broadcast({
+      type: 'attendance_change',
+      tripId: trip.id,
+      studentId: student.user_id,
+      status: 'present'
+    });
+
+    res.json({
+      success: true,
+      studentName: student.name,
+      rollNumber: student.roll_number,
+      message: `SUCCESS: ${student.name} checked in successfully for Trip #${trip.id}!`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Handle Wait Request (Accept/Reject)
 app.post('/api/driver/wait-request/action', async (req, res) => {
   const { requestId, action } = req.body;

@@ -713,9 +713,13 @@ export default function StudentApp({ userId, onLogout }) {
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', padding: '24px' }}>
             <h4 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--accent-cyan)' }}>QR Bus Pass</h4>
             <div className="qr-pass-container">
-              <div className="qr-box">
-                <QrCode size={150} color="#000" />
-                <div className="scan-line"></div>
+              <div className="qr-box" style={{ background: '#fff', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${profile.qr_code_pass || 'QR_PASS_DEFAULT'}`} 
+                  alt="QR Bus Pass" 
+                  style={{ display: 'block', width: '150px', height: '150px', zIndex: 1 }} 
+                />
+                <div className="scan-line" style={{ zIndex: 2 }}></div>
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>

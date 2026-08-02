@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, CheckCircle, Navigation, Users, AlertOctagon, 
-  CornerUpRight, Check, X, ShieldAlert
+  CornerUpRight, Check, X, ShieldAlert, Camera, QrCode
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -46,11 +46,58 @@ export default function DriverApp({ userId, onLogout }) {
   const [simStep, setSimStep] = useState(0);
   const simTimer = useRef(null);
   const ws = useRef(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const scannerRef = useRef(null);
 
   const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
   const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
+
+  useEffect(() => {
+    if (isScanning) {
+      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
+        const scanner = new Html5QrcodeScanner(
+          "driver-qr-reader",
+          { fps: 10, qrbox: { width: 200, height: 200 } },
+          /* verbose= */ false
+        );
+
+        scanner.render(
+          async (decodedText) => {
+            setIsScanning(false);
+            scanner.clear().catch(err => console.error("Error clearing scanner", err));
+            try {
+              const res = await fetch(`${API_BASE}/admin/verify-scan`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ qrCodePass: decodedText })
+              });
+              const data = await res.json();
+              alert(data.message);
+            } catch (err) {
+              alert('Error verifying pass: ' + err.message);
+            }
+          },
+          (error) => {
+            // Ignore scan failures
+          }
+        );
+        scannerRef.current = scanner;
+      });
+    } else {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(err => console.error("Error clearing scanner", err));
+        scannerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(err => console.error("Error clearing scanner", err));
+      }
+    };
+  }, [isScanning]);
 
   useEffect(() => {
     fetchTrip();
@@ -465,14 +512,31 @@ export default function DriverApp({ userId, onLogout }) {
 
         {/* Student Passengers Checklist */}
         <div className="glass-card" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h4 style={{ fontSize: '13px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <h4 style={{ fontSize: '13px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
               <Users size={14} /> Student Checklist
             </h4>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Total: {attendance.length}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {tripStatus !== 'scheduled' && (
+                <button 
+                  onClick={() => setIsScanning(!isScanning)} 
+                  className="btn-primary" 
+                  style={{ width: 'auto', padding: '4px 8px', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Camera size={12} /> {isScanning ? 'Close' : 'Scan Pass'}
+                </button>
+              )}
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Total: {attendance.length}
+              </span>
+            </div>
           </div>
+
+          {isScanning && (
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', background: '#000', overflow: 'hidden' }}>
+              <div id="driver-qr-reader" style={{ width: '100%' }}></div>
+            </div>
+          )}
 
           {tripStatus === 'scheduled' ? (
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>

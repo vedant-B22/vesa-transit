@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   BarChart2, Users, Truck, Route, AlertTriangle, ShieldAlert, 
-  Plus, Edit, Trash2, Upload, Search, Bell, Download, Check, Wrench
+  Plus, Edit, Trash2, Upload, Search, Bell, Download, Check, Wrench,
+  Camera, QrCode
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -70,12 +71,50 @@ export default function AdminDashboard({ onLogout }) {
   // QR Pass Scanner Emulation
   const [scannedPassCode, setScannedPassCode] = useState('');
   const [scanResult, setScanResult] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const scannerRef = useRef(null);
 
   const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
   const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
   const ws = useRef(null);
+
+  useEffect(() => {
+    if (isScanning) {
+      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
+        const scanner = new Html5QrcodeScanner(
+          "qr-reader",
+          { fps: 10, qrbox: { width: 200, height: 200 } },
+          /* verbose= */ false
+        );
+
+        scanner.render(
+          (decodedText) => {
+            setScannedPassCode(decodedText);
+            handleVerifyQRPass(decodedText);
+            setIsScanning(false);
+            scanner.clear().catch(err => console.error("Error clearing scanner", err));
+          },
+          (error) => {
+            // Ignore scan failures
+          }
+        );
+        scannerRef.current = scanner;
+      });
+    } else {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(err => console.error("Error clearing scanner", err));
+        scannerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(err => console.error("Error clearing scanner", err));
+      }
+    };
+  }, [isScanning]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -276,18 +315,33 @@ export default function AdminDashboard({ onLogout }) {
     }
   };
 
-  const handleVerifyQRPass = () => {
-    if (!scannedPassCode.trim()) return;
-    const match = students.find(s => s.qr_code_pass === scannedPassCode);
-    if (match) {
-      setScanResult({
-        success: true,
-        message: `VALID PASS: Welcome ${match.name} (${match.roll_number}). Route: ${match.route_name || 'Unassigned'}.`
+  const handleVerifyQRPass = async (code = scannedPassCode) => {
+    const codeToVerify = typeof code === 'string' ? code.trim() : '';
+    if (!codeToVerify) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/verify-scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qrCodePass: codeToVerify })
       });
-    } else {
+      const data = await res.json();
+      if (res.ok) {
+        setScanResult({
+          success: data.success,
+          message: data.message
+        });
+        fetchDashboardData();
+        fetchStudentList();
+      } else {
+        setScanResult({
+          success: false,
+          message: data.message || 'Verification failed.'
+        });
+      }
+    } catch (err) {
       setScanResult({
         success: false,
-        message: `INVALID PASS: Code ${scannedPassCode} not registered in database.`
+        message: 'Could not reach backend API.'
       });
     }
   };
@@ -624,7 +678,23 @@ export default function AdminDashboard({ onLogout }) {
 
                 {/* QR Pass Verification Scanner */}
                 <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: '700' }}>QR Bus Pass Scanner Terminal</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>QR Bus Pass Scanner Terminal</h3>
+                    <button 
+                      onClick={() => setIsScanning(!isScanning)} 
+                      className="btn-primary" 
+                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Camera size={14} /> {isScanning ? 'Stop Camera' : 'Start Camera Scanner'}
+                    </button>
+                  </div>
+
+                  {isScanning && (
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '12px', background: '#000', overflow: 'hidden' }}>
+                      <div id="qr-reader" style={{ width: '100%' }}></div>
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <input 
                       type="text" 
@@ -633,7 +703,7 @@ export default function AdminDashboard({ onLogout }) {
                       value={scannedPassCode}
                       onChange={e => setScannedPassCode(e.target.value)}
                     />
-                    <button onClick={handleVerifyQRPass} className="btn-primary" style={{ width: '160px' }}>Verify Pass</button>
+                    <button onClick={() => handleVerifyQRPass(scannedPassCode)} className="btn-primary" style={{ width: '160px' }}>Verify Pass</button>
                   </div>
                   {scanResult && (
                     <div style={{
