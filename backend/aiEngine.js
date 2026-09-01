@@ -275,11 +275,15 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
 };
 
 /**
- * Driver Hands-Free Voice Assistant Query Handler
+ * Driver Hands-Free Voice Assistant Query Handler (Supports English, Hindi, Marathi)
  */
-export const answerDriverVoiceQuery = async (driverId, query) => {
+export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
   const q = (query || '').toLowerCase().trim();
   const todayStr = new Date().toISOString().split('T')[0];
+
+  // Detect script or explicit language code
+  const isMarathi = lang === 'mr' || q.includes('नाही') || q.includes('येत') || q.includes('कोण') || q.includes('थांबा') || q.includes('प्रवासी');
+  const isHindi = !isMarathi && (lang === 'hi' || q.includes('नहीं') || q.includes('कौन') || q.includes('छात्र') || q.includes('स्टॉप') || q.includes('कितने') || q.includes('यात्री'));
 
   // Fetch driver info and active trip
   const driver = await db.get(
@@ -322,7 +326,26 @@ export const answerDriverVoiceQuery = async (driverId, query) => {
   const awaiting = students.filter(s => s.passenger_status === 'absent');
 
   // 1. Who is not coming / Absences
-  if (q.includes('not coming') || q.includes('absent') || q.includes('opted out') || q.includes('who is missing') || q.includes('absence')) {
+  if (q.includes('not coming') || q.includes('absent') || q.includes('opted out') || q.includes('who is missing') || q.includes('absence') ||
+      q.includes('नाही') || q.includes('येत नाही') || q.includes('गैरहजर') || q.includes('नहीं आ रहा') || q.includes('अनुपस्थित')) {
+    
+    if (isMarathi) {
+      if (notComing.length === 0) {
+        return "आज सर्व विद्यार्थी येत आहेत! या रूटवर कोणतीही गैरहजेरी नोंदवलेली नाही.";
+      }
+      const names = notComing.map(s => `${s.name} (${s.stop_name})`).join(', ');
+      return `आज ${notComing.length} विद्यार्थी येत नाहीत: ${names}. तुम्हाला त्यांच्या थांब्यावर थांबण्याची गरज नाही.`;
+    }
+
+    if (isHindi) {
+      if (notComing.length === 0) {
+        return "आज सभी छात्र आ रहे हैं! इस रूट पर किसी भी छात्र की अनुपस्थिति दर्ज नहीं है।";
+      }
+      const names = notComing.map(s => `${s.name} (${s.stop_name})`).join(', ');
+      return `आज ${notComing.length} छात्र नहीं आ रहे हैं: ${names}। आपको उनके लिए रुकने की आवश्यकता नहीं है।`;
+    }
+
+    // English
     if (notComing.length === 0) {
       return "All scheduled students are coming today! No absences reported for this route.";
     }
@@ -331,26 +354,63 @@ export const answerDriverVoiceQuery = async (driverId, query) => {
   }
 
   // 2. Passenger count / Headcount / Boarded
-  if (q.includes('how many') || q.includes('passenger') || q.includes('headcount') || q.includes('boarded') || q.includes('count') || q.includes('who is on the bus')) {
+  if (q.includes('how many') || q.includes('passenger') || q.includes('headcount') || q.includes('boarded') || q.includes('count') || q.includes('who is on the bus') ||
+      q.includes('प्रवासी') || q.includes('संख्या') || q.includes('यात्री') || q.includes('कितने')) {
+    
+    if (isMarathi) {
+      return `हजेरी रिपोर्ट: ${boarded.length} विद्यार्थी बसमध्ये चढले आहेत, ${awaiting.length} विद्यार्थी थांब्यावर वाट पाहत आहेत, आणि ${notComing.length} विद्यार्थी आज येत नाहीत.`;
+    }
+
+    if (isHindi) {
+      return `यात्री रिपोर्ट: ${boarded.length} छात्र बस में चढ़ चुके हैं, ${awaiting.length} छात्र स्टॉप पर इंतज़ार कर रहे हैं, और ${notComing.length} छात्र आज नहीं आ रहे हैं।`;
+    }
+
     return `Headcount report: ${boarded.length} student${boarded.length === 1 ? '' : 's'} boarded, ${awaiting.length} awaiting pickup, and ${notComing.length} marked not coming today out of ${students.length} total assigned passengers.`;
   }
 
   // 3. Next stop / Destination / Schedule
-  if (q.includes('next stop') || q.includes('where are we') || q.includes('destination') || q.includes('upcoming stop') || q.includes('arrival')) {
-    if (!activeTrip) {
-      return `Trip is currently scheduled. Next stop upon starting will be ${students[0]?.stop_name || 'Majestic Hub'}.`;
+  if (q.includes('next stop') || q.includes('where are we') || q.includes('destination') || q.includes('upcoming stop') || q.includes('arrival') ||
+      q.includes('थांबा') || q.includes('पुढचा') || q.includes('स्टॉप') || q.includes('अगला')) {
+    
+    const nextStop = activeTrip?.next_stop_name || activeTrip?.current_stop_name || 'VESA Campus Terminal';
+    const speed = Math.round(activeTrip?.speed || 35);
+    const eta = activeTrip?.eta_mins || 8;
+
+    if (isMarathi) {
+      return `पुढचा थांबा ${nextStop} आहे. बसचा वेग ${speed} किमी प्रति तास आहे आणि अंदाजे ${eta} मिनिटांत पोहोचेल.`;
     }
-    const nextStop = activeTrip.next_stop_name || activeTrip.current_stop_name || 'VESA Campus Terminal';
-    const speed = Math.round(activeTrip.speed || 35);
-    return `Next upcoming stop is ${nextStop}. Current speed is ${speed} kilometers per hour, with estimated arrival in ${activeTrip.eta_mins || 8} minutes.`;
+
+    if (isHindi) {
+      return `अगला स्टॉप ${nextStop} है। बस की गति ${speed} किमी प्रति घंटा है और लगभग ${eta} मिनट में पहुंचेगी।`;
+    }
+
+    return `Next upcoming stop is ${nextStop}. Current speed is ${speed} kilometers per hour, with estimated arrival in ${eta} minutes.`;
   }
 
   // 4. Route Status / Speed / Optimization
-  if (q.includes('route') || q.includes('traffic') || q.includes('speed') || q.includes('status') || q.includes('time')) {
+  if (q.includes('route') || q.includes('traffic') || q.includes('speed') || q.includes('status') || q.includes('time') ||
+      q.includes('रूट') || q.includes('स्थिती') || q.includes('ट्रॅफिक') || q.includes('ट्रैफिक')) {
+    
+    if (isMarathi) {
+      return `बस क्रमांक ${driver?.bus_number || '101'} (${driver?.route_name || 'Route A'}) सुरळीत चालू आहे. एआय रूट ऑप्टिमायझेशन सुरू आहे.`;
+    }
+
+    if (isHindi) {
+      return `बस नंबर ${driver?.bus_number || '101'} (${driver?.route_name || 'Route A'}) सुचारू रूप से चल रही है। एआई रूट ऑप्टिमाइजेशन सक्रिय है।`;
+    }
+
     const tripState = activeTrip ? 'active and en route' : 'scheduled at terminal';
     return `Bus ${driver?.bus_number || '101'} on ${driver?.route_name || 'Route A'} is ${tripState}. AI route optimization is active.`;
   }
 
-  // 5. Default Driver Assistant Voice Response
+  // 5. Default Greeting / Help
+  if (isMarathi) {
+    return `नमस्कार! मी ड्रायव्हर व्हॉईस असिस्टंट आहे. तुम्ही विचारू शकता: "आज कोण येत नाही?", "एकूण किती प्रवासी आहेत?", किंवा "पुढचा थांबा कोणता?".`;
+  }
+
+  if (isHindi) {
+    return `नमस्ते! मैं ड्राइवर वॉइस असिस्टेंट हूँ। आप पूछ सकते हैं: "आज कौन नहीं आ रहा है?", "कुल कितने यात्री हैं?", या "अगला स्टॉप कौन सा है?".`;
+  }
+
   return `Driver Assistant online for Bus ${driver?.bus_number || '101'}. You can say: "Who is not coming today?", "What is the passenger headcount?", or "What is the next stop?".`;
 };

@@ -46,6 +46,7 @@ export default function DriverApp({ userId, onLogout }) {
   const [showQrStickerModal, setShowQrStickerModal] = useState(false); // Bus QR Sticker modal
 
   // Voice Assistant States
+  const [voiceLang, setVoiceLang] = useState('en'); // 'en', 'hi', 'mr'
   const [isListening, setIsListening] = useState(false);
   const [voiceQuery, setVoiceQuery] = useState('');
   const [aiVoiceResponse, setAiVoiceResponse] = useState("Hi David! I'm your transit copilot. Tap the mic or ask a quick question hands-free.");
@@ -71,14 +72,23 @@ export default function DriverApp({ userId, onLogout }) {
     }, 6000);
   };
 
-  // Speech Synthesis Output
-  const speakText = (text) => {
+  // Speech Synthesis Output (Supports Marathi mr-IN, Hindi hi-IN, English en-IN)
+  const speakText = (text, langCode = voiceLang) => {
     if (voiceMuted || !('speechSynthesis' in window)) return;
     try {
       window.speechSynthesis.cancel();
       const cleanText = text.replace(/[*_#`]/g, '');
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.05;
+      
+      if (langCode === 'mr') {
+        utterance.lang = 'mr-IN';
+      } else if (langCode === 'hi') {
+        utterance.lang = 'hi-IN';
+      } else {
+        utterance.lang = 'en-IN';
+      }
+
+      utterance.rate = 1.0;
       utterance.pitch = 1.0;
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => setIsSpeaking(false);
@@ -90,7 +100,7 @@ export default function DriverApp({ userId, onLogout }) {
   };
 
   // Voice Query Submission
-  const handleVoiceQuery = async (queryText) => {
+  const handleVoiceQuery = async (queryText, langCode = voiceLang) => {
     if (!queryText || !queryText.trim()) return;
     setVoiceQuery(queryText);
     setIsVoiceLoading(true);
@@ -100,13 +110,14 @@ export default function DriverApp({ userId, onLogout }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           driverId: userId,
-          query: queryText
+          query: queryText,
+          lang: langCode
         })
       });
       const data = await res.json();
       if (res.ok) {
         setAiVoiceResponse(data.answer);
-        speakText(data.answer);
+        speakText(data.answer, langCode);
       }
     } catch (err) {
       setAiVoiceResponse("Unable to reach voice assistant server.");
@@ -115,7 +126,7 @@ export default function DriverApp({ userId, onLogout }) {
     }
   };
 
-  // Microphone Speech Recognition Toggle
+  // Microphone Speech Recognition Toggle (Multilingual)
   const toggleListen = () => {
     if (isListening) {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -131,7 +142,8 @@ export default function DriverApp({ userId, onLogout }) {
 
     try {
       const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
+      // Set recognition locale based on chosen language
+      recognition.lang = voiceLang === 'mr' ? 'mr-IN' : voiceLang === 'hi' ? 'hi-IN' : 'en-IN';
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
 
@@ -142,7 +154,7 @@ export default function DriverApp({ userId, onLogout }) {
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         setIsListening(false);
-        handleVoiceQuery(transcript);
+        handleVoiceQuery(transcript, voiceLang);
       };
 
       recognition.onerror = (event) => {
@@ -618,7 +630,7 @@ export default function DriverApp({ userId, onLogout }) {
           )}
         </div>
 
-        {/* DRIVER AI VOICE COPILOT */}
+        {/* DRIVER AI VOICE COPILOT (MULTILINGUAL: ENGLISH / HINDI / MARATHI) */}
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', background: 'linear-gradient(135deg, rgba(6,182,212,0.08) 0%, rgba(99,102,241,0.08) 100%)', border: '1px solid rgba(6,182,212,0.3)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -632,7 +644,43 @@ export default function DriverApp({ userId, onLogout }) {
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            
+            {/* Language Switcher & Mute Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', padding: '2px', border: '1px solid var(--border-color)' }}>
+                {[
+                  { code: 'en', label: 'EN' },
+                  { code: 'hi', label: 'हिन्दी' },
+                  { code: 'mr', label: 'मराठी' }
+                ].map(l => (
+                  <button
+                    key={l.code}
+                    onClick={() => {
+                      setVoiceLang(l.code);
+                      const welcome = l.code === 'mr' 
+                        ? 'नमस्कार! मी तुमचा ड्रायव्हर व्हॉईस असिस्टंट आहे. बोला किंवा खालील बटण दाबा.'
+                        : l.code === 'hi'
+                        ? 'नमस्ते! मैं आपका ड्राइवर वॉइस असिस्टेंट हूँ। बोलें या नीचे दिए गए बटन दबाएं।'
+                        : "Hi David! I'm your transit copilot. Tap the mic or ask a quick question hands-free.";
+                      setAiVoiceResponse(welcome);
+                      speakText(welcome, l.code);
+                    }}
+                    style={{
+                      background: voiceLang === l.code ? 'var(--accent-cyan)' : 'transparent',
+                      color: voiceLang === l.code ? '#000' : 'var(--text-secondary)',
+                      border: 'none',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '9px',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+
               <button 
                 onClick={() => setVoiceMuted(!voiceMuted)} 
                 title={voiceMuted ? "Unmute Voice" : "Mute Voice"}
@@ -664,7 +712,7 @@ export default function DriverApp({ userId, onLogout }) {
             )}
             <div>
               {isVoiceLoading ? (
-                <span style={{ opacity: 0.7 }}>Thinking...</span>
+                <span style={{ opacity: 0.7 }}>{voiceLang === 'mr' ? 'विचार करत आहे...' : voiceLang === 'hi' ? 'सोच रहा हूँ...' : 'Thinking...'}</span>
               ) : (
                 aiVoiceResponse
               )}
@@ -693,27 +741,37 @@ export default function DriverApp({ userId, onLogout }) {
             >
               {isListening ? (
                 <>
-                  <MicOff size={16} /> Listening... (Speak Now)
+                  <MicOff size={16} /> {voiceLang === 'mr' ? 'ऐकत आहे... (बोला)' : voiceLang === 'hi' ? 'सुन रहा हूँ... (बोलें)' : 'Listening... (Speak Now)'}
                 </>
               ) : (
                 <>
-                  <Mic size={16} color="var(--accent-cyan)" /> Tap to Speak (Hands-Free)
+                  <Mic size={16} color="var(--accent-cyan)" /> {voiceLang === 'mr' ? 'माईक दाबा (मराठीत बोला)' : voiceLang === 'hi' ? 'माइक दबाएं (हिंदी में बोलें)' : 'Tap to Speak (Hands-Free)'}
                 </>
               )}
             </button>
           </div>
 
-          {/* Quick Voice Command Chips */}
+          {/* Quick Voice Command Chips (Localized) */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
-            {[
+            {(voiceLang === 'mr' ? [
+              { label: '👥 आज कोण येत नाही?', query: 'आज कोण येत नाही?' },
+              { label: '🔢 एकूण प्रवासी?', query: 'एकूण किती प्रवासी आहेत?' },
+              { label: '📍 पुढचा थांबा?', query: 'पुढचा थांबा कोणता आहे?' },
+              { label: '🚦 रूट स्थिती?', query: 'रूट आणि ट्रॅफिक स्थिती काय आहे?' }
+            ] : voiceLang === 'hi' ? [
+              { label: '👥 आज कौन नहीं आ रहा?', query: 'आज कौन नहीं आ रहा है?' },
+              { label: '🔢 कुल यात्री?', query: 'कुल कितने यात्री हैं?' },
+              { label: '📍 अगला स्टॉप?', query: 'अगला स्टॉप कौन सा है?' },
+              { label: '🚦 रूट स्थिति?', query: 'रूट और ट्रैफिक स्थिति क्या है?' }
+            ] : [
               { label: '👥 Who is absent?', query: 'Who is not coming today?' },
               { label: '🔢 Headcount?', query: 'What is the passenger headcount?' },
               { label: '📍 Next stop?', query: 'What is the next stop?' },
               { label: '🚦 Route status?', query: 'What is the route and transit status?' }
-            ].map((chip, idx) => (
+            ]).map((chip, idx) => (
               <button
                 key={idx}
-                onClick={() => handleVoiceQuery(chip.query)}
+                onClick={() => handleVoiceQuery(chip.query, voiceLang)}
                 style={{
                   background: 'rgba(255,255,255,0.04)',
                   border: '1px solid var(--border-color)',

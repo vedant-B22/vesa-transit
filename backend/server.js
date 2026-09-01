@@ -319,9 +319,9 @@ app.post('/api/student/ai-chat', async (req, res) => {
 
 // Driver Voice Assistant Endpoint
 app.post('/api/driver/voice-assistant', async (req, res) => {
-  const { driverId, query } = req.body;
+  const { driverId, query, lang } = req.body;
   try {
-    const answer = await ai.answerDriverVoiceQuery(driverId, query);
+    const answer = await ai.answerDriverVoiceQuery(driverId, query, lang);
     res.json({ success: true, answer });
   } catch (err) {
     res.status(500).json({ error: err.message });
