@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, CheckCircle, Navigation, Users, AlertOctagon, 
-  CornerUpRight, Check, X, ShieldAlert, QrCode, Bell, UserCheck, UserX, Clock, Sparkles
+  CornerUpRight, Check, X, ShieldAlert, QrCode, Bell, UserCheck, UserX, Clock, Sparkles,
+  Mic, MicOff, Volume2, VolumeX, Bot, Radio, MessageSquare
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -43,6 +44,15 @@ export default function DriverApp({ userId, onLogout }) {
   const [sosAlert, setSosAlert] = useState(null); // Active SOS alert details
   const [driverToast, setDriverToast] = useState(null); // Real-time notification banners
   const [showQrStickerModal, setShowQrStickerModal] = useState(false); // Bus QR Sticker modal
+
+  // Voice Assistant States
+  const [isListening, setIsListening] = useState(false);
+  const [voiceQuery, setVoiceQuery] = useState('');
+  const [aiVoiceResponse, setAiVoiceResponse] = useState("Hi David! I'm your transit copilot. Tap the mic or ask a quick question hands-free.");
+  const [isVoiceLoading, setIsVoiceLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  const recognitionRef = useRef(null);
   
   // GPS simulation tracking
   const [simStep, setSimStep] = useState(0);
@@ -59,6 +69,97 @@ export default function DriverApp({ userId, onLogout }) {
     setTimeout(() => {
       setDriverToast(null);
     }, 6000);
+  };
+
+  // Speech Synthesis Output
+  const speakText = (text) => {
+    if (voiceMuted || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const cleanText = text.replace(/[*_#`]/g, '');
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('Speech synthesis error:', e);
+    }
+  };
+
+  // Voice Query Submission
+  const handleVoiceQuery = async (queryText) => {
+    if (!queryText || !queryText.trim()) return;
+    setVoiceQuery(queryText);
+    setIsVoiceLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/driver/voice-assistant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: userId,
+          query: queryText
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAiVoiceResponse(data.answer);
+        speakText(data.answer);
+      }
+    } catch (err) {
+      setAiVoiceResponse("Unable to reach voice assistant server.");
+    } finally {
+      setIsVoiceLoading(false);
+    }
+  };
+
+  // Microphone Speech Recognition Toggle
+  const toggleListen = () => {
+    if (isListening) {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser environment. You can tap any of the quick voice query buttons below!");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setIsListening(false);
+        handleVoiceQuery(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error(err);
+      setIsListening(false);
+    }
   };
 
   useEffect(() => {
@@ -515,6 +616,119 @@ export default function DriverApp({ userId, onLogout }) {
               ✓ Shift Completed. GPS tracking disabled.
             </div>
           )}
+        </div>
+
+        {/* DRIVER AI VOICE COPILOT */}
+        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', background: 'linear-gradient(135deg, rgba(6,182,212,0.08) 0%, rgba(99,102,241,0.08) 100%)', border: '1px solid rgba(6,182,212,0.3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Bot size={16} color="var(--accent-cyan)" />
+              <span style={{ fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--accent-cyan)', letterSpacing: '0.5px' }}>
+                Driver Voice Copilot
+              </span>
+              {isSpeaking && (
+                <span className="pulse-badge" style={{ fontSize: '9px', background: 'rgba(16,185,129,0.2)', color: 'var(--accent-emerald)', padding: '1px 6px' }}>
+                  Speaking
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button 
+                onClick={() => setVoiceMuted(!voiceMuted)} 
+                title={voiceMuted ? "Unmute Voice" : "Mute Voice"}
+                style={{ background: 'none', border: 'none', color: voiceMuted ? 'var(--accent-rose)' : 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              >
+                {voiceMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Assistant Voice Bubble */}
+          <div style={{
+            background: 'rgba(255,255,255,0.03)',
+            borderRadius: '8px',
+            padding: '10px 12px',
+            border: '1px solid var(--border-color)',
+            fontSize: '11px',
+            lineHeight: '1.45',
+            color: '#fff',
+            minHeight: '40px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px'
+          }}>
+            {voiceQuery && (
+              <div style={{ fontSize: '10px', color: 'var(--accent-cyan)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Radio size={10} /> "{voiceQuery}"
+              </div>
+            )}
+            <div>
+              {isVoiceLoading ? (
+                <span style={{ opacity: 0.7 }}>Thinking...</span>
+              ) : (
+                aiVoiceResponse
+              )}
+            </div>
+          </div>
+
+          {/* Push to Talk Mic Button */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              onClick={toggleListen}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: isListening ? '1px solid var(--accent-rose)' : '1px solid var(--accent-cyan)',
+                background: isListening ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : 'linear-gradient(135deg, rgba(6,182,212,0.2) 0%, rgba(99,102,241,0.2) 100%)',
+                color: '#fff',
+                fontSize: '12px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              {isListening ? (
+                <>
+                  <MicOff size={16} /> Listening... (Speak Now)
+                </>
+              ) : (
+                <>
+                  <Mic size={16} color="var(--accent-cyan)" /> Tap to Speak (Hands-Free)
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Quick Voice Command Chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+            {[
+              { label: '👥 Who is absent?', query: 'Who is not coming today?' },
+              { label: '🔢 Headcount?', query: 'What is the passenger headcount?' },
+              { label: '📍 Next stop?', query: 'What is the next stop?' },
+              { label: '🚦 Route status?', query: 'What is the route and transit status?' }
+            ].map((chip, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleVoiceQuery(chip.query)}
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-secondary)',
+                  padding: '3px 8px',
+                  borderRadius: '12px',
+                  fontSize: '10px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* GPS Tracking Map Emulator */}

@@ -273,3 +273,84 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
   // 5. Default conversational greeting / help
   return `Hi ${student.name.split(' ')[0]}, I am the VESA Transit AI Assistant. You can ask me questions like:\n• *Where is my bus?*\n• *When will the bus arrive at my stop?*\n• *Why is the bus delayed?*\n• *What is my fee status?*\n• *Show my route timings.*`;
 };
+
+/**
+ * Driver Hands-Free Voice Assistant Query Handler
+ */
+export const answerDriverVoiceQuery = async (driverId, query) => {
+  const q = (query || '').toLowerCase().trim();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Fetch driver info and active trip
+  const driver = await db.get(
+    `SELECT d.*, u.name, b.bus_number, r.name as route_name, r.id as route_id
+     FROM drivers d
+     JOIN users u ON d.user_id = u.id
+     LEFT JOIN buses b ON d.bus_id = b.id
+     LEFT JOIN routes r ON d.route_id = r.id
+     WHERE d.user_id = ?`,
+    [driverId]
+  );
+
+  const activeTrip = await db.get(
+    `SELECT t.*, st.name as current_stop_name, nst.name as next_stop_name
+     FROM trips t
+     LEFT JOIN stops st ON t.current_stop_id = st.id
+     LEFT JOIN stops nst ON t.next_stop_id = nst.id
+     WHERE (t.driver_id = ? OR t.bus_id = ?) AND t.status IN ('active', 'started', 'en_route')
+     ORDER BY t.created_at DESC LIMIT 1`,
+    [driverId, driver?.bus_id || 1]
+  );
+
+  // Fetch student roster status for this route
+  const routeId = driver?.route_id || activeTrip?.route_id || 1;
+  const students = await db.query(
+    `SELECT s.*, st.name as stop_name,
+            CASE WHEN nc.id IS NOT NULL THEN 'not_coming'
+                 WHEN a.status = 'present' THEN 'present'
+                 ELSE 'absent' END as passenger_status
+     FROM students s
+     LEFT JOIN stops st ON s.pickup_stop_id = st.id
+     LEFT JOIN not_coming nc ON s.user_id = nc.student_id AND nc.date = ?
+     LEFT JOIN attendance a ON s.user_id = a.student_id AND a.trip_id = ?
+     WHERE s.route_id = ?`,
+    [todayStr, activeTrip?.id || 0, routeId]
+  );
+
+  const notComing = students.filter(s => s.passenger_status === 'not_coming');
+  const boarded = students.filter(s => s.passenger_status === 'present');
+  const awaiting = students.filter(s => s.passenger_status === 'absent');
+
+  // 1. Who is not coming / Absences
+  if (q.includes('not coming') || q.includes('absent') || q.includes('opted out') || q.includes('who is missing') || q.includes('absence')) {
+    if (notComing.length === 0) {
+      return "All scheduled students are coming today! No absences reported for this route.";
+    }
+    const names = notComing.map(s => `${s.name} at ${s.stop_name}`).join(', ');
+    return `There are ${notComing.length} student${notComing.length > 1 ? 's' : ''} not coming today: ${names}. You do not need to wait for them.`;
+  }
+
+  // 2. Passenger count / Headcount / Boarded
+  if (q.includes('how many') || q.includes('passenger') || q.includes('headcount') || q.includes('boarded') || q.includes('count') || q.includes('who is on the bus')) {
+    return `Headcount report: ${boarded.length} student${boarded.length === 1 ? '' : 's'} boarded, ${awaiting.length} awaiting pickup, and ${notComing.length} marked not coming today out of ${students.length} total assigned passengers.`;
+  }
+
+  // 3. Next stop / Destination / Schedule
+  if (q.includes('next stop') || q.includes('where are we') || q.includes('destination') || q.includes('upcoming stop') || q.includes('arrival')) {
+    if (!activeTrip) {
+      return `Trip is currently scheduled. Next stop upon starting will be ${students[0]?.stop_name || 'Majestic Hub'}.`;
+    }
+    const nextStop = activeTrip.next_stop_name || activeTrip.current_stop_name || 'VESA Campus Terminal';
+    const speed = Math.round(activeTrip.speed || 35);
+    return `Next upcoming stop is ${nextStop}. Current speed is ${speed} kilometers per hour, with estimated arrival in ${activeTrip.eta_mins || 8} minutes.`;
+  }
+
+  // 4. Route Status / Speed / Optimization
+  if (q.includes('route') || q.includes('traffic') || q.includes('speed') || q.includes('status') || q.includes('time')) {
+    const tripState = activeTrip ? 'active and en route' : 'scheduled at terminal';
+    return `Bus ${driver?.bus_number || '101'} on ${driver?.route_name || 'Route A'} is ${tripState}. AI route optimization is active.`;
+  }
+
+  // 5. Default Driver Assistant Voice Response
+  return `Driver Assistant online for Bus ${driver?.bus_number || '101'}. You can say: "Who is not coming today?", "What is the passenger headcount?", or "What is the next stop?".`;
+};

@@ -317,6 +317,17 @@ app.post('/api/student/ai-chat', async (req, res) => {
   }
 });
 
+// Driver Voice Assistant Endpoint
+app.post('/api/driver/voice-assistant', async (req, res) => {
+  const { driverId, query } = req.body;
+  try {
+    const answer = await ai.answerDriverVoiceQuery(driverId, query);
+    res.json({ success: true, answer });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Complaints
 app.post('/api/student/complaints', async (req, res) => {
   const { studentId, category, description } = req.body;
