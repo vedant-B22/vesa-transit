@@ -171,42 +171,76 @@ app.post('/api/student/fees/pay', async (req, res) => {
 app.post('/api/student/not-coming', async (req, res) => {
   const { studentId, date, isComing } = req.body;
   try {
+    const today = date || new Date().toISOString().split('T')[0];
+    const student = await db.get(
+      `SELECT s.*, st.name as stop_name 
+       FROM students s 
+       LEFT JOIN stops st ON s.pickup_stop_id = st.id 
+       WHERE s.user_id = ?`,
+      [studentId]
+    );
+
     if (!isComing) {
       // Record not coming today
-      await db.run('INSERT INTO not_coming (student_id, date) VALUES (?, ?)', [studentId, date]);
+      const existing = await db.get('SELECT id FROM not_coming WHERE student_id = ? AND date = ?', [studentId, today]);
+      if (!existing) {
+        await db.run('INSERT INTO not_coming (student_id, date) VALUES (?, ?)', [studentId, today]);
+      }
+      // Update any active trip attendance record
+      await db.run(
+        `UPDATE attendance SET status = 'not_coming' 
+         WHERE student_id = ? AND trip_id IN (SELECT id FROM trips WHERE status IN ('active', 'started', 'en_route'))`,
+        [studentId]
+      );
     } else {
       // Cancel absence
-      await db.run('DELETE FROM not_coming WHERE student_id = ? AND date = ?', [studentId, date]);
+      await db.run('DELETE FROM not_coming WHERE student_id = ? AND date = ?', [studentId, today]);
+      // Reset active trip attendance to 'absent' (awaiting pickup)
+      await db.run(
+        `UPDATE attendance SET status = 'absent' 
+         WHERE student_id = ? AND trip_id IN (SELECT id FROM trips WHERE status IN ('active', 'started', 'en_route'))`,
+        [studentId]
+      );
     }
 
-    // Recalculate route optimization for that student's route
-    const student = await db.get('SELECT route_id, bus_id FROM students WHERE user_id = ?', [studentId]);
-    
-    // Find active trip for that route
-    const activeTrip = await db.get('SELECT id FROM trips WHERE route_id = ? AND status = "active"', [student.route_id]);
-    
+    // Recalculate route optimization for that student's route if trip is active
     let optimizedRouteData = null;
-    if (activeTrip) {
-      optimizedRouteData = await ai.optimizeRoute(activeTrip.id);
-      
-      // Update checklist and broadcast optimization details to driver and admin
-      broadcast({
-        type: 'route_optimization',
-        tripId: activeTrip.id,
-        routeId: student.route_id,
-        optimizedRouteData
-      });
+    if (student && student.route_id) {
+      const activeTrip = await db.get('SELECT id FROM trips WHERE route_id = ? AND status IN ("active", "started", "en_route")', [student.route_id]);
+      if (activeTrip) {
+        optimizedRouteData = await ai.optimizeRoute(activeTrip.id);
+        broadcast({
+          type: 'route_optimization',
+          tripId: activeTrip.id,
+          routeId: student.route_id,
+          optimizedRouteData
+        });
+      }
     }
 
-    // Broadcast attendance update to driver
+    // Broadcast attendance update and direct student absence alert to driver & admin
     broadcast({
       type: 'attendance_change',
       studentId,
-      date,
-      isComing
+      studentName: student?.name || `Student #${studentId}`,
+      stopName: student?.stop_name || 'Pickup Stop',
+      date: today,
+      isComing,
+      status: isComing ? 'absent' : 'not_coming'
     });
 
-    res.json({ success: true, optimizedRouteData });
+    broadcast({
+      type: 'student_absence_alert',
+      studentId,
+      studentName: student?.name || `Student #${studentId}`,
+      stopName: student?.stop_name || 'Pickup Stop',
+      isComing,
+      message: isComing 
+        ? `${student?.name || 'Student'} cancelled absence and is COMING today (Stop: ${student?.stop_name || 'Assigned Stop'}).`
+        : `Student ${student?.name || 'Passenger'} marked NOT COMING today (Stop: ${student?.stop_name || 'Assigned Stop'}).`
+    });
+
+    res.json({ success: true, isComing, optimizedRouteData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -520,13 +554,20 @@ app.post('/api/driver/trip/action', async (req, res) => {
 // Fetch checklist for driver
 app.get('/api/driver/trip/:tripId/attendance', async (req, res) => {
   try {
+    const today = new Date().toISOString().split('T')[0];
     const list = await db.query(
-      `SELECT a.*, s.name, st.name as stop_name, s.pickup_stop_id
+      `SELECT a.*, s.name, s.roll_number, st.name as stop_name, s.pickup_stop_id,
+              CASE 
+                WHEN nc.id IS NOT NULL THEN 'not_coming'
+                ELSE a.status 
+              END as effective_status
        FROM attendance a
        JOIN students s ON a.student_id = s.user_id
        JOIN stops st ON s.pickup_stop_id = st.id
-       WHERE a.trip_id = ?`,
-      [req.params.tripId]
+       LEFT JOIN not_coming nc ON s.user_id = nc.student_id AND nc.date = ?
+       WHERE a.trip_id = ?
+       ORDER BY s.pickup_stop_id ASC, s.name ASC`,
+      [today, req.params.tripId]
     );
     res.json(list);
   } catch (err) {
@@ -546,7 +587,110 @@ app.post('/api/driver/trip/attendance/toggle', async (req, res) => {
   }
 });
 
-// Scan QR pass to check in student
+// Student scans Bus QR Code to register digital boarding / attendance
+app.post('/api/student/scan-bus-qr', async (req, res) => {
+  const { studentId, busQrCode, scanType } = req.body;
+  try {
+    const student = await db.get(
+      `SELECT s.*, st.name as stop_name, b.bus_number, b.id as bus_table_id 
+       FROM students s
+       LEFT JOIN stops st ON s.pickup_stop_id = st.id
+       LEFT JOIN buses b ON s.bus_id = b.id
+       WHERE s.user_id = ?`,
+      [studentId]
+    );
+
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student account not found in database.' });
+    }
+
+    const normalizedCode = (busQrCode || '').trim().toUpperCase();
+    
+    // Find matching bus
+    const matchedBus = await db.get(
+      `SELECT * FROM buses 
+       WHERE UPPER(bus_number) = ? OR UPPER(license_plate) = ? OR ? LIKE ('%' || UPPER(bus_number) || '%')`,
+      [normalizedCode, normalizedCode, normalizedCode]
+    ) || await db.get('SELECT * FROM buses WHERE id = ?', [student.bus_id || 1]);
+
+    const busNumber = matchedBus ? matchedBus.bus_number : (student.bus_number || '101');
+    const busId = matchedBus ? matchedBus.id : (student.bus_id || 1);
+
+    // Look for active trip for this bus or student's route
+    let activeTrip = await db.get(
+      `SELECT * FROM trips 
+       WHERE bus_id = ? AND status IN ('active', 'started', 'en_route') 
+       ORDER BY created_at DESC LIMIT 1`,
+      [busId]
+    );
+
+    if (!activeTrip) {
+      activeTrip = await db.get(
+        `SELECT * FROM trips 
+         WHERE route_id = ? AND status IN ('active', 'started', 'en_route') 
+         ORDER BY created_at DESC LIMIT 1`,
+        [student.route_id || 1]
+      );
+    }
+
+    const tripId = activeTrip ? activeTrip.id : 1;
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // Update or insert attendance record
+    const attRecord = await db.get(
+      'SELECT id FROM attendance WHERE trip_id = ? AND student_id = ?',
+      [tripId, student.user_id]
+    );
+
+    if (attRecord) {
+      await db.run(
+        'UPDATE attendance SET status = "present" WHERE id = ?',
+        [attRecord.id]
+      );
+    } else {
+      await db.run(
+        'INSERT INTO attendance (trip_id, student_id, status) VALUES (?, ?, "present")',
+        [tripId, student.user_id]
+      );
+    }
+
+    // Remove any not_coming entry if they boarded the bus
+    const today = new Date().toISOString().split('T')[0];
+    await db.run('DELETE FROM not_coming WHERE student_id = ? AND date = ?', [student.user_id, today]);
+
+    // Broadcast passenger boarded event to Driver App & Admin Control
+    broadcast({
+      type: 'passenger_boarded',
+      tripId,
+      studentId: student.user_id,
+      studentName: student.name,
+      rollNumber: student.roll_number,
+      stopName: student.stop_name || 'Pickup Stop',
+      busNumber,
+      time: nowTime,
+      scanType: scanType || 'boarding'
+    });
+
+    broadcast({
+      type: 'attendance_change',
+      tripId,
+      studentId: student.user_id,
+      status: 'present'
+    });
+
+    res.json({
+      success: true,
+      message: `Digital Attendance Recorded! Welcome aboard Bus ${busNumber} (${student.name}).`,
+      studentName: student.name,
+      busNumber,
+      timestamp: nowTime
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin terminal QR scan verify endpoint
 app.post('/api/admin/verify-scan', async (req, res) => {
   const { qrCodePass } = req.body;
   try {

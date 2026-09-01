@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   MapPin, Clock, Navigation, AlertTriangle, HelpCircle, 
-  CreditCard, QrCode, FileText, Send, User, LogOut, CheckCircle2, ShieldAlert
+  CreditCard, QrCode, FileText, Send, User, LogOut, CheckCircle2, ShieldAlert,
+  Bell, BellRing, Volume2, VolumeX, Camera, Lock, Unlock, Check, Sparkles
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -93,7 +94,19 @@ export default function StudentApp({ userId, onLogout }) {
   const [dailyRequestsCount, setDailyRequestsCount] = useState(0);
   const [sosActive, setSosActive] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  // Proximity 5-minute Alarm State
+  const [isAlarmRinging, setIsAlarmRinging] = useState(false);
+  const [alarmModalOpen, setAlarmModalOpen] = useState(false);
+  const [alarmDismissed, setAlarmDismissed] = useState(false);
+  const alarmInterval = useRef(null);
   
+  // Student Bus QR Camera Scanner State
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [demoBypassTime, setDemoBypassTime] = useState(false);
+  const [attendanceSuccess, setAttendanceSuccess] = useState(null);
+  const scannerRef = useRef(null);
+
   // Complaints and Lost & Found
   const [complaintCat, setComplaintCat] = useState('complaint');
   const [complaintDesc, setComplaintDesc] = useState('');
@@ -121,6 +134,112 @@ export default function StudentApp({ userId, onLogout }) {
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
 
+  // Native Web Audio Synthesizer for 5-Min Alarm Bell
+  const playAlarmTone = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      
+      const playTone = (freq, start, duration) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.25, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + duration);
+      };
+
+      // Crisp high-pitch 3-tone alert chime
+      playTone(987.77, now, 0.15); // B5
+      playTone(1318.51, now + 0.18, 0.2); // E6
+      playTone(1760.00, now + 0.38, 0.35); // A6
+    } catch (e) {
+      console.warn('Audio tone synthesis error:', e);
+    }
+  };
+
+  const startAlarm = (message = "Bus is approximately 5 minutes away from your pickup stop!") => {
+    setIsAlarmRinging(true);
+    setAlarmModalOpen(true);
+    playAlarmTone();
+    if (alarmInterval.current) clearInterval(alarmInterval.current);
+    alarmInterval.current = setInterval(() => {
+      playAlarmTone();
+    }, 1600);
+  };
+
+  const stopAlarm = () => {
+    setIsAlarmRinging(false);
+    setAlarmModalOpen(false);
+    setAlarmDismissed(true);
+    if (alarmInterval.current) {
+      clearInterval(alarmInterval.current);
+      alarmInterval.current = null;
+    }
+  };
+
+  // Check if current time falls within official operating windows
+  // Morning: 07:00 AM – 09:30 AM (420 to 570 mins)
+  // Evening: 04:30 PM – 07:00 PM (990 to 1140 mins)
+  const isWithinScanWindow = () => {
+    if (demoBypassTime) return true;
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const isMorning = mins >= 420 && mins <= 570;
+    const isEvening = mins >= 990 && mins <= 1140;
+    return isMorning || isEvening;
+  };
+
+  // Camera scanner effect for Student scanning Bus QR sticker
+  useEffect(() => {
+    if (isCameraActive) {
+      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
+        const scanner = new Html5QrcodeScanner(
+          "student-bus-qr-reader",
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          false
+        );
+        scanner.render(
+          async (decodedText) => {
+            setIsCameraActive(false);
+            scanner.clear().catch(err => console.error(err));
+            await handleScanBusQR(decodedText);
+          },
+          () => {}
+        );
+        scannerRef.current = scanner;
+      });
+    } else {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(err => console.error(err));
+        scannerRef.current = null;
+      }
+    }
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(err => console.error(err));
+      }
+      if (alarmInterval.current) {
+        clearInterval(alarmInterval.current);
+      }
+    };
+  }, [isCameraActive]);
+
+  // Check proximity to trigger 5-minute arrival alarm automatically
+  useEffect(() => {
+    if (trip && trip.status === 'active' && trip.eta_mins > 0 && trip.eta_mins <= 5) {
+      if (!alarmDismissed && !isAlarmRinging) {
+        startAlarm(`Bus ${profile?.bus_number || '101'} is approximately ${trip.eta_mins} mins away from ${profile?.stop_name || 'your stop'}!`);
+      }
+    }
+  }, [trip?.eta_mins, trip?.status, alarmDismissed, isAlarmRinging]);
+
   useEffect(() => {
     fetchProfile();
     fetchFees();
@@ -128,6 +247,7 @@ export default function StudentApp({ userId, onLogout }) {
 
     return () => {
       if (ws.current) ws.current.close();
+      if (alarmInterval.current) clearInterval(alarmInterval.current);
     };
   }, [userId]);
 
@@ -279,6 +399,30 @@ export default function StudentApp({ userId, onLogout }) {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleScanBusQR = async (code) => {
+    try {
+      const res = await fetch(`${API_BASE}/student/scan-bus-qr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: userId,
+          busQrCode: code || 'VESA_BUS_101',
+          scanType: 'boarding'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAttendanceSuccess(data);
+        showToast('Attendance Marked!', data.message);
+        playAlarmTone();
+      } else {
+        alert(data.message || 'Verification error');
+      }
+    } catch (err) {
+      alert('Network error connecting to transit backend: ' + err.message);
     }
   };
 
@@ -459,7 +603,60 @@ export default function StudentApp({ userId, onLogout }) {
   const myStopCoords = myStop ? [myStop.latitude, myStop.longitude] : [12.9716, 77.5946];
 
   return (
-    <div className="phone-screen">
+    <div className="phone-screen" style={{ position: 'relative' }}>
+      {/* 5-Minute Proximity Alarm Alert Modal */}
+      {alarmModalOpen && (
+        <div style={{
+          position: 'absolute',
+          top: 10,
+          left: 10,
+          right: 10,
+          background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
+          color: '#fff',
+          padding: '14px',
+          borderRadius: '12px',
+          boxShadow: '0 8px 24px rgba(239, 68, 68, 0.5)',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          animation: 'pulse 1.2s infinite ease-in-out'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <BellRing size={20} />
+              <span style={{ fontWeight: '800', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                5-Min Proximity Alarm!
+              </span>
+            </div>
+            <Volume2 size={18} />
+          </div>
+          <div style={{ fontSize: '12px', lineHeight: '1.4', opacity: 0.95 }}>
+            Bus <b>{profile.bus_number || '101'}</b> is approximately <b>{trip?.eta_mins || 5} mins</b> away from <b>{profile.stop_name || 'your stop'}</b>! Get ready to board.
+          </div>
+          <button 
+            onClick={stopAlarm}
+            style={{
+              background: '#fff',
+              color: '#b91c1c',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '6px 12px',
+              fontWeight: '700',
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              marginTop: '4px'
+            }}
+          >
+            <VolumeX size={14} /> Dismiss & Stop Alarm
+          </button>
+        </div>
+      )}
+
       {/* Toast Notification Banner */}
       {notification && (
         <div className="notification-banner">
@@ -543,6 +740,28 @@ export default function StudentApp({ userId, onLogout }) {
                   Today's route starts scheduled at 7:30 AM
                 </div>
               )}
+
+              {/* 5-Min Proximity Alarm Control Bar */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '10px', color: (trip?.eta_mins <= 5 && isTripActive) ? 'var(--accent-rose)' : 'var(--accent-cyan)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Bell size={12} /> {(trip?.eta_mins <= 5 && isTripActive) ? '5m Alarm Active' : '5m Proximity Alarm Armed'}
+                </span>
+                <button 
+                  onClick={() => isAlarmRinging ? stopAlarm() : startAlarm("Demo Alarm: Bus is 5 minutes from your pickup location!")}
+                  style={{
+                    background: isAlarmRinging ? 'rgba(239,68,68,0.2)' : 'rgba(6,182,212,0.1)',
+                    border: '1px solid ' + (isAlarmRinging ? 'var(--accent-rose)' : 'var(--accent-cyan)'),
+                    color: isAlarmRinging ? 'var(--accent-rose)' : 'var(--accent-cyan)',
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {isAlarmRinging ? 'Stop Alarm' : '🔔 Test 5m Alarm'}
+                </button>
+              </div>
             </div>
 
             {/* Quick Actions Toggles */}
@@ -708,26 +927,151 @@ export default function StudentApp({ userId, onLogout }) {
           </div>
         )}
 
-        {/* TAB 4: PASS */}
+        {/* TAB 4: PASS & DIGITAL ATTENDANCE */}
         {activeTab === 'pass' && (
-          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', padding: '24px' }}>
-            <h4 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--accent-cyan)' }}>QR Bus Pass</h4>
-            <div className="qr-pass-container">
-              <div className="qr-box" style={{ background: '#fff', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-                <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${profile.qr_code_pass || 'QR_PASS_DEFAULT'}`} 
-                  alt="QR Bus Pass" 
-                  style={{ display: 'block', width: '150px', height: '150px', zIndex: 1 }} 
-                />
-                <div className="scan-line" style={{ zIndex: 2 }}></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Bus QR Scanner Card */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h4 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--accent-cyan)', margin: 0 }}>
+                    Bus Attendance Scanner
+                  </h4>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Scan the QR sticker inside your bus</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {isWithinScanWindow() ? (
+                    <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Unlock size={10} /> Active Window
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--accent-rose)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Lock size={10} /> Inactive Window
+                    </span>
+                  )}
+                </div>
               </div>
+
+              {/* Time Window Notice */}
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px', fontSize: '11px', lineHeight: '1.4' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                  <span><b>Morning:</b> 07:00 – 09:30 AM</span>
+                  <span><b>Evening:</b> 04:30 – 07:00 PM</span>
+                </div>
+              </div>
+
+              {!isWithinScanWindow() ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '16px 8px', textAlign: 'center' }}>
+                  <Lock size={32} color="var(--accent-rose)" />
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Bus attendance scanning is currently locked outside scheduled trip hours.
+                  </div>
+                  <button 
+                    onClick={() => setDemoBypassTime(true)}
+                    style={{
+                      background: 'rgba(99,102,241,0.15)',
+                      border: '1px solid var(--accent-indigo)',
+                      color: 'var(--accent-indigo)',
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Sparkles size={12} /> Enable Demo Mode (Bypass Restriction)
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {demoBypassTime && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(99,102,241,0.1)', padding: '6px 10px', borderRadius: '6px', fontSize: '10px', color: 'var(--accent-indigo)' }}>
+                      <span>⚡ Demo Mode Active (Time window bypassed)</span>
+                      <button onClick={() => setDemoBypassTime(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '10px' }}>Re-lock</button>
+                    </div>
+                  )}
+
+                  {/* Camera Scanner Stream View */}
+                  {isCameraActive && (
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', padding: '10px', background: '#000', overflow: 'hidden' }}>
+                      <div id="student-bus-qr-reader" style={{ width: '100%' }}></div>
+                    </div>
+                  )}
+
+                  {/* Camera Trigger & Quick Check-in */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <button 
+                      onClick={() => setIsCameraActive(!isCameraActive)} 
+                      className="btn-primary"
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px' }}
+                    >
+                      <Camera size={16} /> {isCameraActive ? 'Close Camera Scanner' : 'Scan Bus QR Code Sticker'}
+                    </button>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <button 
+                        onClick={() => handleScanBusQR(`VESA_BUS_${profile.bus_number || '101'}`)}
+                        className="btn-secondary"
+                        style={{ flex: 1, fontSize: '11px', padding: '6px' }}
+                      >
+                        ⚡ Fast Check-in Bus {profile.bus_number || '101'}
+                      </button>
+                      <button 
+                        onClick={() => handleScanBusQR('VESA_BUS_102')}
+                        className="btn-secondary"
+                        style={{ flex: 1, fontSize: '11px', padding: '6px' }}
+                      >
+                        ⚡ Fast Check-in Bus 102
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Attendance Success Boarding Pass Ticket */}
+                  {attendanceSuccess && (
+                    <div style={{
+                      background: 'rgba(16,185,129,0.1)',
+                      border: '1px solid var(--accent-emerald)',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-emerald)', fontWeight: '700', fontSize: '13px' }}>
+                        <CheckCircle2 size={16} /> Digital Attendance Verified
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-primary)' }}>{attendanceSuccess.message}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Boarded at: {attendanceSuccess.timestamp} • Status: <b>PRESENT</b>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '15px', fontWeight: '700' }}>{profile.name}</div>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Roll: {profile.roll_number}</span>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', width: '100%', fontSize: '11px', textAlign: 'center' }}>
-              Scan at the bus door reader or driver console to log your daily attendance.
+
+            {/* Student Personal QR Identity Card */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center', padding: '20px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                Digital Student Bus ID
+              </span>
+              <div className="qr-pass-container">
+                <div className="qr-box" style={{ background: '#fff', padding: '10px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${profile.qr_code_pass || 'QR_PASS_DEFAULT'}`} 
+                    alt="Student ID QR" 
+                    style={{ display: 'block', width: '140px', height: '140px', zIndex: 1 }} 
+                  />
+                  <div className="scan-line" style={{ zIndex: 2 }}></div>
+                </div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '15px', fontWeight: '700' }}>{profile.name}</div>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Roll: {profile.roll_number} • Bus {profile.bus_number}</span>
+              </div>
             </div>
           </div>
         )}

@@ -68,7 +68,8 @@ export default function AdminDashboard({ onLogout }) {
   // Active trips live tracking coordinates
   const [liveTrips, setLiveTrips] = useState([]);
 
-  // QR Pass Scanner Emulation
+  // QR Pass Scanner Emulation & Bus Sticker View
+  const [selectedBusForSticker, setSelectedBusForSticker] = useState(null);
   const [scannedPassCode, setScannedPassCode] = useState('');
   const [scanResult, setScanResult] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -843,6 +844,7 @@ export default function AdminDashboard({ onLogout }) {
                     <th>Mileage (Odometer)</th>
                     <th>Insurance Renewal</th>
                     <th>Operational Status</th>
+                    <th>Bus QR Sticker</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -862,11 +864,53 @@ export default function AdminDashboard({ onLogout }) {
                           {b.status}
                         </span>
                       </td>
+                      <td>
+                        <button 
+                          onClick={() => setSelectedBusForSticker(b)}
+                          className="btn-secondary"
+                          style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <QrCode size={12} /> View Sticker
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            {/* Bus QR Sticker Modal */}
+            {selectedBusForSticker && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '380px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center', padding: '24px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--accent-cyan)' }}>
+                    In-Bus Physical QR Sticker
+                  </span>
+                  <div style={{ background: '#fff', padding: '16px', borderRadius: '12px' }}>
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=VESA_BUS_${selectedBusForSticker.bus_number}`} 
+                      alt={`Bus ${selectedBusForSticker.bus_number} QR Code`} 
+                      style={{ width: '200px', height: '200px', display: 'block' }}
+                    />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '20px', fontWeight: '800', margin: 0 }}>Bus #{selectedBusForSticker.bus_number}</h3>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Code: VESA_BUS_{selectedBusForSticker.bus_number}</span>
+                  </div>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                    Stick this QR code at the bus entrance. Boarding students scan this with their Student App camera to record digital attendance.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', width: '100%' }}>
+                    <button onClick={() => window.print()} className="btn-secondary" style={{ padding: '8px', fontSize: '12px' }}>
+                      Print Sticker
+                    </button>
+                    <button onClick={() => setSelectedBusForSticker(null)} className="btn-primary" style={{ padding: '8px', fontSize: '12px' }}>
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

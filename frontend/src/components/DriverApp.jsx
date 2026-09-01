@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, CheckCircle, Navigation, Users, AlertOctagon, 
-  CornerUpRight, Check, X, ShieldAlert, Camera, QrCode
+  CornerUpRight, Check, X, ShieldAlert, QrCode, Bell, UserCheck, UserX, Clock, Sparkles
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -41,63 +41,25 @@ export default function DriverApp({ userId, onLogout }) {
   // Real-time alerts
   const [waitAlert, setWaitAlert] = useState(null); // Incoming wait request alert object
   const [sosAlert, setSosAlert] = useState(null); // Active SOS alert details
+  const [driverToast, setDriverToast] = useState(null); // Real-time notification banners
+  const [showQrStickerModal, setShowQrStickerModal] = useState(false); // Bus QR Sticker modal
   
   // GPS simulation tracking
   const [simStep, setSimStep] = useState(0);
   const simTimer = useRef(null);
   const ws = useRef(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const scannerRef = useRef(null);
 
   const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
   const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
 
-  useEffect(() => {
-    if (isScanning) {
-      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
-        const scanner = new Html5QrcodeScanner(
-          "driver-qr-reader",
-          { fps: 10, qrbox: { width: 200, height: 200 } },
-          /* verbose= */ false
-        );
-
-        scanner.render(
-          async (decodedText) => {
-            setIsScanning(false);
-            scanner.clear().catch(err => console.error("Error clearing scanner", err));
-            try {
-              const res = await fetch(`${API_BASE}/admin/verify-scan`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ qrCodePass: decodedText })
-              });
-              const data = await res.json();
-              alert(data.message);
-            } catch (err) {
-              alert('Error verifying pass: ' + err.message);
-            }
-          },
-          (error) => {
-            // Ignore scan failures
-          }
-        );
-        scannerRef.current = scanner;
-      });
-    } else {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(err => console.error("Error clearing scanner", err));
-        scannerRef.current = null;
-      }
-    }
-
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(err => console.error("Error clearing scanner", err));
-      }
-    };
-  }, [isScanning]);
+  const showDriverToast = (title, message) => {
+    setDriverToast({ title, message });
+    setTimeout(() => {
+      setDriverToast(null);
+    }, 6000);
+  };
 
   useEffect(() => {
     fetchTrip();
@@ -165,6 +127,22 @@ export default function DriverApp({ userId, onLogout }) {
 
       if (data.type === 'sos_resolved' && sosAlert && sosAlert.studentId === data.studentId) {
         setSosAlert(null);
+      }
+
+      if (data.type === 'student_absence_alert') {
+        showDriverToast(
+          data.isComing ? 'Student Coming' : 'Student Absence Alert',
+          data.message || `Student #${data.studentId} updated status`
+        );
+        if (trip) fetchAttendance(trip.id);
+      }
+
+      if (data.type === 'passenger_boarded') {
+        showDriverToast(
+          'Passenger Boarded',
+          `${data.studentName} scanned Bus QR and checked in at ${data.stopName}!`
+        );
+        if (trip) fetchAttendance(trip.id);
       }
 
       if (data.type === 'attendance_change') {
@@ -377,8 +355,56 @@ export default function DriverApp({ userId, onLogout }) {
   const activeStop = stops[activeStopIndex];
   const busCoordinates = routeAPath[simStep] || routeAPath[0];
 
+  // Calculate live passenger breakdown
+  const boardedList = attendance.filter(st => (st.effective_status || st.status) === 'present');
+  const notComingList = attendance.filter(st => (st.effective_status || st.status) === 'not_coming');
+  const awaitingList = attendance.filter(st => (st.effective_status || st.status) === 'absent');
+
   return (
-    <div className="phone-screen">
+    <div className="phone-screen" style={{ position: 'relative' }}>
+      {/* Real-time Driver Toast Notification Banner */}
+      {driverToast && (
+        <div className="notification-banner" style={{ background: '#1e293b', border: '1px solid var(--accent-cyan)', color: '#fff' }}>
+          <Bell size={18} style={{ color: 'var(--accent-cyan)' }} />
+          <div>
+            <div style={{ fontWeight: '700', fontSize: '12px', color: 'var(--accent-cyan)' }}>{driverToast.title}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{driverToast.message}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Bus QR Sticker Display Modal (for students to scan from driver screen if needed) */}
+      {showQrStickerModal && (
+        <div className="sos-overlay" style={{ background: 'rgba(10,14,23,0.95)', zIndex: 99999 }}>
+          <div className="glass-card" style={{ maxWidth: '300px', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', padding: '20px', textAlign: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--accent-cyan)', letterSpacing: '0.5px' }}>
+              Bus QR Attendance Sticker
+            </span>
+            <div className="qr-box" style={{ background: '#fff', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=VESA_BUS_${trip.bus_number || '101'}`} 
+                alt="Bus QR Sticker" 
+                style={{ width: '160px', height: '160px', display: 'block' }} 
+              />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>Bus #{trip.bus_number}</h3>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Code: VESA_BUS_{trip.bus_number}</span>
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+              Students point their Student App camera at this QR code to log their digital attendance upon boarding.
+            </p>
+            <button 
+              className="btn-primary" 
+              style={{ width: '100%', padding: '8px' }}
+              onClick={() => setShowQrStickerModal(false)}
+            >
+              Close Sticker
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Wait Request Banner Notification Overlay */}
       {waitAlert && (
         <div className="notification-banner" style={{ background: '#1e293b', border: '1px solid var(--accent-amber)', color: '#fff' }}>
@@ -441,7 +467,7 @@ export default function DriverApp({ userId, onLogout }) {
         {/* Route Details Card */}
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div>
-            <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '700' }}>Active Duty Duty Route</span>
+            <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '700' }}>Active Duty Route</span>
             <h3 style={{ fontSize: '18px', fontWeight: '800', marginTop: '2px' }}>{trip.route_name}</h3>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
@@ -493,7 +519,7 @@ export default function DriverApp({ userId, onLogout }) {
 
         {/* GPS Tracking Map Emulator */}
         {tripStatus === 'active' && (
-          <div className="glass-card" style={{ padding: '8px', height: '220px' }}>
+          <div className="glass-card" style={{ padding: '8px', height: '200px' }}>
             <MapContainer 
               center={busCoordinates} 
               zoom={13} 
@@ -510,74 +536,116 @@ export default function DriverApp({ userId, onLogout }) {
           </div>
         )}
 
-        {/* Student Passengers Checklist */}
+        {/* Live Passenger Roster & Presence Dashboard */}
         <div className="glass-card" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h4 style={{ fontSize: '13px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-              <Users size={14} /> Student Checklist
+              <Users size={14} /> Live Passenger Roster
             </h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {tripStatus !== 'scheduled' && (
-                <button 
-                  onClick={() => setIsScanning(!isScanning)} 
-                  className="btn-primary" 
-                  style={{ width: 'auto', padding: '4px 8px', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <Camera size={12} /> {isScanning ? 'Close' : 'Scan Pass'}
-                </button>
-              )}
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                Total: {attendance.length}
-              </span>
+            <button 
+              onClick={() => setShowQrStickerModal(true)} 
+              className="btn-secondary" 
+              style={{ width: 'auto', padding: '4px 8px', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <QrCode size={12} /> Show Bus QR Sticker
+            </button>
+          </div>
+
+          {/* Real-time Headcount Metrics Bar */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', fontSize: '11px' }}>
+            <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', padding: '6px 8px', borderRadius: '6px', textAlign: 'center' }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: '9px', display: 'block' }}>BOARDED</span>
+              <span style={{ fontWeight: '800', color: 'var(--accent-emerald)', fontSize: '13px' }}>{boardedList.length}</span>
+            </div>
+            <div style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.2)', padding: '6px 8px', borderRadius: '6px', textAlign: 'center' }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: '9px', display: 'block' }}>AWAITING</span>
+              <span style={{ fontWeight: '800', color: 'var(--accent-cyan)', fontSize: '13px' }}>{awaitingList.length}</span>
+            </div>
+            <div style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.2)', padding: '6px 8px', borderRadius: '6px', textAlign: 'center' }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: '9px', display: 'block' }}>NOT COMING</span>
+              <span style={{ fontWeight: '800', color: 'var(--accent-rose)', fontSize: '13px' }}>{notComingList.length}</span>
             </div>
           </div>
 
-          {isScanning && (
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', background: '#000', overflow: 'hidden' }}>
-              <div id="driver-qr-reader" style={{ width: '100%' }}></div>
-            </div>
-          )}
-
           {tripStatus === 'scheduled' ? (
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>
-              Student checklist will load once you start the trip.
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>
+              Passenger roster will activate automatically once you start the daily trip shift.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', maxHeight: '200px' }}>
-              {attendance.map(st => (
-                <div key={st.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border-color)' }}>
-                  <div>
-                    <div style={{ fontSize: '12px', fontWeight: '600' }}>{st.name}</div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Boarding: {st.stop_name}</span>
-                  </div>
-                  
-                  {st.status === 'not_coming' ? (
-                    <span style={{ fontSize: '10px', background: 'rgba(244,63,94,0.1)', color: 'var(--accent-rose)', padding: '2px 8px', borderRadius: '4px', fontWeight: '600' }}>
-                      Not Coming
-                    </span>
-                  ) : (
-                    <button 
-                      onClick={() => handleToggleAttendance(st.id, st.status)}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', maxHeight: '220px' }}>
+              {attendance.length === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
+                  No students assigned to this route.
+                </div>
+              ) : (
+                attendance.map(st => {
+                  const effectiveStatus = st.effective_status || st.status;
+                  const isBoarded = effectiveStatus === 'present';
+                  const isNotComing = effectiveStatus === 'not_coming';
+                  const isAwaiting = !isBoarded && !isNotComing;
+
+                  return (
+                    <div 
+                      key={st.id} 
                       style={{ 
-                        background: st.status === 'present' ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.05)',
-                        border: '1px solid ' + (st.status === 'present' ? 'var(--accent-emerald)' : 'var(--border-color)'),
-                        color: st.status === 'present' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
-                        padding: '4px 10px', 
-                        borderRadius: '6px', 
-                        fontSize: '11px', 
-                        fontWeight: '700',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px'
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        padding: '8px 10px', 
+                        borderRadius: '8px',
+                        background: isNotComing ? 'rgba(244,63,94,0.05)' : isBoarded ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)',
+                        border: '1px solid ' + (isNotComing ? 'rgba(244,63,94,0.2)' : isBoarded ? 'rgba(16,185,129,0.2)' : 'var(--border-color)')
                       }}
                     >
-                      {st.status === 'present' ? <Check size={12} /> : null}
-                      {st.status === 'present' ? 'Present' : 'Mark Present'}
-                    </button>
-                  )}
-                </div>
-              ))}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {st.name}
+                          {st.roll_number && (
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                              ({st.roll_number})
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                          Stop: <b>{st.stop_name}</b>
+                        </span>
+                      </div>
+                      
+                      {isNotComing ? (
+                        <span style={{ fontSize: '10px', background: 'rgba(244,63,94,0.15)', color: 'var(--accent-rose)', padding: '3px 8px', borderRadius: '4px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <X size={11} /> Not Coming Today
+                        </span>
+                      ) : isBoarded ? (
+                        <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', padding: '3px 8px', borderRadius: '4px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Check size={11} /> Boarded (Scanned)
+                        </span>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '10px', background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)', padding: '3px 6px', borderRadius: '4px', fontWeight: '600' }}>
+                            Awaiting Pickup
+                          </span>
+                          <button 
+                            onClick={() => handleToggleAttendance(st.id, 'absent')}
+                            title="Manual Check-in fallback"
+                            style={{ 
+                              background: 'rgba(255,255,255,0.05)',
+                              border: '1px solid var(--border-color)',
+                              color: 'var(--text-secondary)',
+                              padding: '3px 6px', 
+                              borderRadius: '4px', 
+                              fontSize: '10px', 
+                              fontWeight: '600',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            + Board
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           )}
         </div>
