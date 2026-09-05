@@ -1118,60 +1118,154 @@ app.delete('/api/admin/students/:id', authenticateToken, requireRole('admin'), a
 
 // CSV Import
 app.post('/api/admin/students/import-csv', authenticateToken, requireRole('admin'), async (req, res, next) => {
-  const { students } = req.body;
+  const { students, defaultFeeAmount, feeDueDate } = req.body;
   if (!Array.isArray(students) || students.length === 0) {
     return res.status(400).json({ error: 'Valid array of students is required' });
   }
 
+  const feeAmount = (Number.isFinite(parseFloat(defaultFeeAmount)) && parseFloat(defaultFeeAmount) >= 0)
+    ? parseFloat(defaultFeeAmount)
+    : 800;
+  const dueDate = (feeDueDate && typeof feeDueDate === 'string' && feeDueDate.trim())
+    ? feeDueDate.trim()
+    : '2026-12-31';
+
   try {
     let importedCount = 0;
+    const errors = [];
     const generatedCredentials = [];
 
     await db.withTransaction(async (tx) => {
-      for (const s of students) {
-        if (!s.email || !s.name || !s.rollNumber) continue;
+      for (let i = 0; i < students.length; i++) {
+        const s = students[i];
+        if (!s || typeof s !== 'object') continue;
+
+        if (!s.email || !s.name || !s.rollNumber) {
+          errors.push({
+            row: i + 1,
+            name: s.name || 'Unknown',
+            email: s.email || 'Unknown',
+            error: 'Missing required fields (Name, Email, or Roll Number).'
+          });
+          continue;
+        }
 
         const cleanEmail = s.email.trim().toLowerCase();
-        const existing = await tx.get('SELECT id FROM users WHERE email = $1', [cleanEmail]);
-        if (!existing) {
-          // Generate secure random initial password
-          const randomPassword = crypto.randomBytes(6).toString('hex');
-          const passwordHash = await bcrypt.hash(randomPassword, 10);
-          const qrPass = 'QR_PASS_' + s.rollNumber.trim().toUpperCase();
 
-          const userRes = await tx.run(
-            'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, \'student\') RETURNING id',
-            [cleanEmail, passwordHash]
+        // 1. Resolve Pickup Stop, Route, and Bus
+        let pickupStopId = null;
+        let routeId = null;
+        let busId = null;
+
+        const pickupName = s.pickupPoint || s.pickupStopName || s.pickup_point;
+        if (pickupName && typeof pickupName === 'string' && pickupName.trim()) {
+          const cleanPickupName = pickupName.trim().toLowerCase();
+          const stopMatch = await tx.get(
+            'SELECT id, route_id, name FROM stops WHERE LOWER(name) = $1 LIMIT 1',
+            [cleanPickupName]
           );
+          if (!stopMatch) {
+            errors.push({
+              row: i + 1,
+              name: s.name,
+              email: cleanEmail,
+              error: `Pickup point '${pickupName.trim()}' does not match any existing stop.`
+            });
+            continue;
+          }
+          pickupStopId = stopMatch.id;
+          routeId = stopMatch.route_id;
 
-          await tx.run(
-            `INSERT INTO students (user_id, name, roll_number, bus_id, route_id, pickup_stop_id, emergency_contact, fee_status, qr_code_pass) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)`,
-            [
-              userRes.id,
-              s.name.trim(),
-              s.rollNumber.trim(),
-              s.busId || null,
-              s.routeId || null,
-              s.pickupStopId || null,
-              s.emergencyContact || '+1 555-0100',
-              qrPass
-            ]
+          // Resolve associated bus
+          const trip = await tx.get('SELECT bus_id FROM trips WHERE route_id = $1 LIMIT 1', [routeId]);
+          if (trip && trip.bus_id) {
+            busId = trip.bus_id;
+          } else {
+            const anyBus = await tx.get('SELECT id FROM buses ORDER BY id ASC LIMIT 1');
+            busId = anyBus ? anyBus.id : null;
+          }
+        } else if (s.pickupStopId) {
+          const stopMatch = await tx.get(
+            'SELECT id, route_id, name FROM stops WHERE id = $1',
+            [parseInt(s.pickupStopId, 10)]
           );
-
-          await tx.run(
-            `INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date, updated_by) 
-             VALUES ($1, 800, 0, 800, '2026-08-15', $2)`,
-            [userRes.id, req.user.userId]
-          );
-
-          importedCount++;
-          generatedCredentials.push({ email: cleanEmail, temporaryPassword: randomPassword });
+          if (!stopMatch) {
+            errors.push({
+              row: i + 1,
+              name: s.name,
+              email: cleanEmail,
+              error: `Pickup stop ID '${s.pickupStopId}' does not exist.`
+            });
+            continue;
+          }
+          pickupStopId = stopMatch.id;
+          routeId = stopMatch.route_id;
+          const trip = await tx.get('SELECT bus_id FROM trips WHERE route_id = $1 LIMIT 1', [routeId]);
+          busId = trip?.bus_id || (await tx.get('SELECT id FROM buses ORDER BY id ASC LIMIT 1'))?.id || null;
+        } else {
+          errors.push({
+            row: i + 1,
+            name: s.name,
+            email: cleanEmail,
+            error: 'Pickup point is required and must match an existing stop.'
+          });
+          continue;
         }
+
+        // 2. Check duplicate email
+        const existing = await tx.get('SELECT id FROM users WHERE email = $1', [cleanEmail]);
+        if (existing) {
+          errors.push({
+            row: i + 1,
+            name: s.name,
+            email: cleanEmail,
+            error: 'A student account with this email address already exists.'
+          });
+          continue;
+        }
+
+        // 3. Generate secure random password and insert user
+        const randomPassword = crypto.randomBytes(6).toString('hex');
+        const passwordHash = await bcrypt.hash(randomPassword, 10);
+        const qrPass = 'QR_PASS_' + s.rollNumber.trim().toUpperCase();
+
+        const userRes = await tx.run(
+          'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, \'student\') RETURNING id',
+          [cleanEmail, passwordHash]
+        );
+
+        await tx.run(
+          `INSERT INTO students (user_id, name, roll_number, bus_id, route_id, pickup_stop_id, emergency_contact, fee_status, qr_code_pass) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)`,
+          [
+            userRes.id,
+            s.name.trim(),
+            s.rollNumber.trim(),
+            busId,
+            routeId,
+            pickupStopId,
+            (s.emergencyContact && s.emergencyContact.trim()) || '+1 555-0100',
+            qrPass
+          ]
+        );
+
+        await tx.run(
+          `INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date, updated_by) 
+           VALUES ($1, $2, 0, $2, $3, $4)`,
+          [userRes.id, feeAmount, dueDate, req.user.userId]
+        );
+
+        importedCount++;
+        generatedCredentials.push({ email: cleanEmail, temporaryPassword: randomPassword });
       }
     });
 
-    res.json({ success: true, count: importedCount, credentials: generatedCredentials });
+    res.json({
+      success: true,
+      count: importedCount,
+      errors,
+      credentials: generatedCredentials
+    });
   } catch (err) {
     next(err);
   }

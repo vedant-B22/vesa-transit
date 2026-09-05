@@ -58,6 +58,12 @@ export default function AdminDashboard({ token, onLogout }) {
   });
   const [csvText, setCsvText] = useState('');
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [defaultFeeAmount, setDefaultFeeAmount] = useState('800');
+  const [feeDueDate, setFeeDueDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 3);
+    return d.toISOString().split('T')[0];
+  });
 
   // Fee Approval State
   const [feeModalStudent, setFeeModalStudent] = useState(null);
@@ -309,36 +315,50 @@ export default function AdminDashboard({ token, onLogout }) {
     const lines = csvText.split('\n');
     const importList = [];
     for (const line of lines) {
+      if (!line.trim()) continue;
       const parts = line.split(',');
       if (parts.length >= 4) {
         importList.push({
-          name: parts[0].trim(),
-          email: parts[1].trim(),
-          rollNumber: parts[2].trim(),
-          emergencyContact: parts[3].trim(),
-          busId: 1,
-          routeId: 1,
-          pickupStopId: 1
+          name: parts[0]?.trim() || '',
+          email: parts[1]?.trim() || '',
+          rollNumber: parts[2]?.trim() || '',
+          emergencyContact: parts[3]?.trim() || '',
+          pickupPoint: parts[4]?.trim() || ''
         });
       }
+    }
+
+    if (importList.length === 0) {
+      alert('No valid student rows found. Please check CSV format.');
+      return;
     }
 
     try {
       const res = await authFetch(`${API_BASE}/admin/students/import-csv`, {
         method: 'POST',
-        body: JSON.stringify({ students: importList })
+        body: JSON.stringify({
+          students: importList,
+          defaultFeeAmount: parseFloat(defaultFeeAmount) || 800,
+          feeDueDate: feeDueDate || new Date().toISOString().split('T')[0]
+        })
       });
       const data = await res.json();
       if (res.ok) {
         fetchStudentList();
         setIsCsvModalOpen(false);
         setCsvText('');
-        alert(`Successfully imported ${data.count || importList.length} students with secure passwords generated!`);
+        let message = `Successfully imported ${data.count || 0} student(s) with secure passwords generated!`;
+        if (data.errors && data.errors.length > 0) {
+          message += `\n\n${data.errors.length} row(s) had errors and were skipped:\n` +
+            data.errors.map(err => `• ${err.name || err.email || 'Row'}: ${err.error}`).join('\n');
+        }
+        alert(message);
       } else {
         alert(data.error || 'Import failed.');
       }
     } catch (e) {
       console.error(e);
+      alert('Network error during CSV import.');
     }
   };
 
@@ -925,17 +945,50 @@ export default function AdminDashboard({ token, onLogout }) {
             {/* CSV Import Modal Overlay */}
             {isCsvModalOpen && (
               <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '500px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="glass-card" style={{ width: '560px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
                   <h3 style={{ fontSize: '18px', fontWeight: '700' }}>CSV Database Importer</h3>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Input comma-separated values (One student per line):<br/><b>Format: Full Name, Email, Roll Number, Emergency Phone</b></span>
-                  <textarea 
-                    className="input-field" 
-                    rows="6"
-                    value={csvText}
-                    onChange={e => setCsvText(e.target.value)}
-                    placeholder="John Doe, john@college.edu, VESA-2024-ST80, 555-0987"
-                    style={{ resize: 'none' }}
-                  ></textarea>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Input comma-separated values (One student per line):<br/>
+                    <b>Format: Full Name, Email, Roll Number, Emergency Phone, Pickup Point</b>
+                  </span>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Default Fee Amount ($)</label>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        placeholder="800" 
+                        value={defaultFeeAmount} 
+                        onChange={e => setDefaultFeeAmount(e.target.value)} 
+                        min="0"
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Fee Due Date</label>
+                      <input 
+                        type="date" 
+                        className="input-field" 
+                        value={feeDueDate} 
+                        onChange={e => setFeeDueDate(e.target.value)} 
+                        required 
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Student CSV Data</label>
+                    <textarea 
+                      className="input-field" 
+                      rows="6"
+                      value={csvText}
+                      onChange={e => setCsvText(e.target.value)}
+                      placeholder="Alex Mercer, alex@college.edu, VESA-2024-ST01, +1 555-0101, Malleswaram 8th Cross&#10;Sophia Sterling, sophia@college.edu, VESA-2024-ST02, +1 555-0102, Majestic Hub"
+                      style={{ resize: 'none', fontFamily: 'monospace', fontSize: '12px' }}
+                    ></textarea>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <button onClick={handleImportCSV} className="btn-primary">Import Batch</button>
                     <button onClick={() => setIsCsvModalOpen(false)} className="btn-secondary">Cancel</button>

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Truck, Monitor, User, Shield, Sparkles, Sun, Moon } from 'lucide-react';
+import { Truck } from 'lucide-react';
 import StudentApp from './components/StudentApp';
 import DriverApp from './components/DriverApp';
 import AdminDashboard from './components/AdminDashboard';
 
 export default function App() {
-  const [theme, setTheme] = useState('dark');
-  const [userRole, setUserRole] = useState(null); // 'student', 'driver', 'admin', 'sandbox', or null
+  const [theme] = useState('dark');
+  const [userRole, setUserRole] = useState(null); // 'student', 'driver', 'admin', or null
   const [currentUserId, setCurrentUserId] = useState(null); // ID of logged user
   const [token, setToken] = useState(localStorage.getItem('vesa_token') || null);
 
@@ -14,9 +14,6 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-
-  // Sandbox multi-tokens
-  const [sandboxTokens, setSandboxTokens] = useState({ student: null, driver: null, admin: null });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -48,65 +45,6 @@ export default function App() {
     } catch (err) {
       setLoginError('Could not reach backend API server. Please ensure backend is running.');
     }
-  };
-
-  const handleQuickLogin = (role) => {
-    if (role === 'student') {
-      setEmail('student1@college.edu');
-      setPassword('password123');
-    } else if (role === 'driver') {
-      setEmail('driver1@transit.com');
-      setPassword('password123');
-    } else if (role === 'admin') {
-      setEmail('admin@vesatransit.com');
-      setPassword('password123');
-    }
-  };
-
-  const handleEnterSandbox = async () => {
-    setLoginError('');
-    try {
-      // Authenticate all 3 test personas to supply real JWT tokens to sandbox panes
-      const [resStudent, resDriver, resAdmin] = await Promise.all([
-        fetch(loginUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: 'student1@college.edu', password: 'password123' })
-        }),
-        fetch(loginUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: 'driver1@transit.com', password: 'password123' })
-        }),
-        fetch(loginUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: 'admin@vesatransit.com', password: 'password123' })
-        })
-      ]);
-
-      const [dataStudent, dataDriver, dataAdmin] = await Promise.all([
-        resStudent.json(),
-        resDriver.json(),
-        resAdmin.json()
-      ]);
-
-      setSandboxTokens({
-        student: dataStudent.token,
-        driver: dataDriver.token,
-        admin: dataAdmin.token
-      });
-
-      setUserRole('sandbox');
-    } catch (err) {
-      console.error('Failed to initialize sandbox tokens:', err);
-      // Fallback
-      setUserRole('sandbox');
-    }
-  };
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
   const handleLogout = () => {
@@ -151,62 +89,7 @@ export default function App() {
     );
   }
 
-  // 2. RENDER MULTI-ROLE LIVE SANDBOX (Displays all side by side with sockets)
-  if (userRole === 'sandbox') {
-    return (
-      <div style={{ background: 'var(--bg-main)', minHeight: '100vh', transition: 'all 0.3s' }}>
-        <div className="sandbox-header" style={{ margin: '16px 24px', position: 'sticky', top: 16, zIndex: 1000 }}>
-          <div className="brand-title">
-            <Sparkles size={24} color="var(--accent-cyan)" />
-            <span>VESA Transit Live Sandbox Environment</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button onClick={toggleTheme} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <button onClick={handleLogout} className="btn-secondary" style={{ width: 'auto', padding: '8px 16px', fontSize: '13px' }}>
-              Exit Sandbox
-            </button>
-          </div>
-        </div>
-
-        {/* 3 Pane layout */}
-        <div style={{ 
-          display: 'flex', 
-          gap: '24px', 
-          padding: '0 24px 24px 24px', 
-          flexWrap: 'wrap', 
-          alignItems: 'flex-start',
-          justifyContent: 'center'
-        }}>
-          {/* Pane 1: Admin Web Dashboard */}
-          <div style={{ flex: '1 1 800px', minWidth: '400px', background: 'var(--bg-surface-solid)', border: '1px solid var(--border-color)', borderRadius: '24px', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
-            <div style={{ height: '780px', overflowY: 'auto' }}>
-              <AdminDashboard token={sandboxTokens.admin} onLogout={handleLogout} />
-            </div>
-          </div>
-
-          {/* Pane 2: Driver App Emulator */}
-          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)' }}>Driver Console (BUS-101)</span>
-            <div className="phone-emulator">
-              <DriverApp userId={6} token={sandboxTokens.driver} onLogout={handleLogout} />
-            </div>
-          </div>
-
-          {/* Pane 3: Student App Emulator */}
-          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)' }}>Student App (Alex Mercer)</span>
-            <div className="phone-emulator">
-              <StudentApp userId={1} token={sandboxTokens.student} onLogout={handleLogout} />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 3. RENDER LOGIN SCREEN (Default landing)
+  // 2. RENDER PRODUCTION LOGIN SCREEN
   return (
     <div style={{ 
       display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', 
@@ -227,25 +110,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Demo Sandbox Entry Option */}
-        <button 
-          onClick={handleEnterSandbox}
-          className="btn-primary" 
-          style={{ 
-            padding: '16px', fontSize: '15px', 
-            background: 'linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-indigo) 100%)',
-            boxShadow: '0 0 20px rgba(6,182,212,0.35)'
-          }}
-        >
-          <Sparkles size={18} /> Enter Interactive Demo Sandbox
-        </button>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Or Login Role</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
-        </div>
-
         {/* Standard Credentials Logins Form */}
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {loginError && (
@@ -260,8 +124,8 @@ export default function App() {
               type="email" 
               className="input-field" 
               placeholder="name@college.edu" 
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+              value={email} 
+              onChange={e => setEmail(e.target.value)} 
               required 
             />
           </div>
@@ -272,8 +136,8 @@ export default function App() {
               type="password" 
               className="input-field" 
               placeholder="••••••••" 
-              value={password}
-              onChange={e => setPassword(e.target.value)}
+              value={password} 
+              onChange={e => setPassword(e.target.value)} 
               required 
             />
           </div>
@@ -282,22 +146,6 @@ export default function App() {
             Verify Credentials & Enter
           </button>
         </form>
-
-        {/* Quick Seeder selectors */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>Quick Autofill Credentials for Test Roles:</span>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            <button onClick={() => handleQuickLogin('student')} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', color: 'var(--text-primary)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-              <User size={10} /> Student
-            </button>
-            <button onClick={() => handleQuickLogin('driver')} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', color: 'var(--text-primary)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-              <Truck size={10} /> Driver
-            </button>
-            <button onClick={() => handleQuickLogin('admin')} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', color: 'var(--text-primary)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-              <Shield size={10} /> Admin
-            </button>
-          </div>
-        </div>
 
       </div>
     </div>

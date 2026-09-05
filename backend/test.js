@@ -273,21 +273,38 @@ async function runAllTests() {
   });
 
   // -------------------------------------------------------------
-  // 7. SECURE STUDENT CSV IMPORT WITH CRYPTO PASSWORDS
+  // 7. SECURE STUDENT CSV IMPORT WITH PICKUP MATCHING & CONFIGURABLE FEES
   // -------------------------------------------------------------
-  await test('Secure Student CSV Bulk Import with Crypto-Random Password Hashes', async () => {
+  await test('Secure Student CSV Import (Pickup Point Lookup, Configurable Fees, Password Hashes)', async () => {
     const admin = (await pool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1")).rows[0];
+    
+    // Seed a route and stop for lookup test
+    const rRes = await pool.query("INSERT INTO routes (name, start_location, end_location, distance_km, estimated_duration_mins) VALUES ($1, $2, $3, $4, $5) RETURNING id", ['Route C', 'Stop 1', 'VESA Campus', 10, 30]);
+    const sRes = await pool.query("INSERT INTO stops (route_id, name, latitude, longitude, sequence_order, scheduled_time) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", [rRes.rows[0].id, 'Malleswaram 8th Cross', 12.9982, 77.5714, 1, '07:42 AM']);
+    
+    const configuredFee = 950.0;
+    const configuredDueDate = '2027-01-31';
+
     const csvStudents = [
-      { name: 'Imported Student 1', email: 'imported1@college.edu', rollNumber: 'VESA-2024-IMP1', emergencyContact: '+1 555-0901' },
-      { name: 'Imported Student 2', email: 'imported2@college.edu', rollNumber: 'VESA-2024-IMP2', emergencyContact: '+1 555-0902' }
+      { name: 'Imported Student 1', email: 'imported1@college.edu', rollNumber: 'VESA-2024-IMP1', emergencyContact: '+1 555-0901', pickupPoint: 'Malleswaram 8th Cross' },
+      { name: 'Imported Student 2', email: 'imported2@college.edu', rollNumber: 'VESA-2024-IMP2', emergencyContact: '+1 555-0902', pickupPoint: 'Invalid Nonexistent Stop' }
     ];
 
+    const errors = [];
     const generatedPasswords = [];
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       for (const s of csvStudents) {
+        // Stop lookup
+        const cleanStopName = s.pickupPoint.trim().toLowerCase();
+        const stopMatch = (await client.query('SELECT id, route_id FROM stops WHERE LOWER(name) = $1 LIMIT 1', [cleanStopName])).rows[0];
+        if (!stopMatch) {
+          errors.push({ name: s.name, error: `Pickup point '${s.pickupPoint}' does not match any existing stop.` });
+          continue;
+        }
+
         const rawPassword = crypto.randomBytes(6).toString('hex'); // Secure random password
         assert(rawPassword.length === 12, 'Secure random password generated');
         assert(rawPassword !== 'password123', 'Password is not hardcoded default');
@@ -302,13 +319,13 @@ async function runAllTests() {
         const userId = userRes.rows[0].id;
 
         await client.query(
-          'INSERT INTO students (user_id, name, roll_number, emergency_contact, fee_status, qr_code_pass) VALUES ($1, $2, $3, $4, $5, $6)',
-          [userId, s.name, s.rollNumber, s.emergencyContact, 'pending', 'QR_PASS_' + s.rollNumber]
+          'INSERT INTO students (user_id, name, roll_number, route_id, pickup_stop_id, emergency_contact, fee_status, qr_code_pass) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+          [userId, s.name, s.rollNumber, stopMatch.route_id, stopMatch.id, s.emergencyContact, 'pending', 'QR_PASS_' + s.rollNumber]
         );
 
         await client.query(
           'INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date, updated_by) VALUES ($1, $2, $3, $4, $5, $6)',
-          [userId, 800, 0, 800, '2026-08-15', admin.id]
+          [userId, configuredFee, 0, configuredFee, configuredDueDate, admin.id]
         );
       }
       await client.query('COMMIT');
@@ -316,13 +333,16 @@ async function runAllTests() {
       client.release();
     }
 
-    // Verify imported users
-    for (const g of generatedPasswords) {
-      const dbUser = (await pool.query('SELECT * FROM users WHERE email = $1', [g.email])).rows[0];
-      assert(dbUser !== undefined, `User ${g.email} found in database`);
-      const valid = await bcrypt.compare(g.rawPassword, dbUser.password_hash);
-      assert(valid === true, `Password for ${g.email} verified against bcrypt hash`);
-    }
+    // Verify valid student was imported with configured fees & stop
+    assert(generatedPasswords.length === 1, '1 valid student imported');
+    assert(errors.length === 1, '1 invalid stop flagged as error');
+    assert(errors[0].error.includes('does not match any existing stop'), 'Error message identifies invalid stop');
+
+    const dbStudent = (await pool.query("SELECT s.*, f.total_amount, f.due_date FROM students s JOIN fees f ON s.user_id = f.student_id WHERE s.roll_number = 'VESA-2024-IMP1'")).rows[0];
+    assert(dbStudent !== undefined, 'Imported student exists in DB');
+    assert(dbStudent.pickup_stop_id === sRes.rows[0].id, 'Pickup stop ID matched correctly');
+    assert(dbStudent.total_amount === configuredFee, 'Configured fee amount ($950) saved correctly');
+    assert(dbStudent.due_date === configuredDueDate, 'Configured due date saved correctly');
   });
 
   // -------------------------------------------------------------
