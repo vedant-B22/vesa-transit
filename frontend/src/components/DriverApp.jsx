@@ -32,7 +32,7 @@ const stopCoordsIndices = {
   4: 12  // Campus Gate
 };
 
-export default function DriverApp({ userId, onLogout }) {
+export default function DriverApp({ userId, token, onLogout }) {
   const [trip, setTrip] = useState(null);
   const [stops, setStops] = useState([]);
   const [attendance, setAttendance] = useState([]);
@@ -64,6 +64,24 @@ export default function DriverApp({ userId, onLogout }) {
   const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
+
+  const authFetch = async (url, options = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401 && onLogout) {
+        onLogout();
+      }
+      return res;
+    } catch (err) {
+      console.error('Fetch error:', err);
+      throw err;
+    }
+  };
 
   const showDriverToast = (title, message) => {
     setDriverToast({ title, message });
@@ -105,9 +123,8 @@ export default function DriverApp({ userId, onLogout }) {
     setVoiceQuery(queryText);
     setIsVoiceLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/driver/voice-assistant`, {
+      const res = await authFetch(`${API_BASE}/driver/voice-assistant`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           driverId: userId,
           query: queryText,
@@ -186,7 +203,7 @@ export default function DriverApp({ userId, onLogout }) {
 
   const fetchTrip = async () => {
     try {
-      const res = await fetch(`${API_BASE}/driver/trip/${userId}`);
+      const res = await authFetch(`${API_BASE}/driver/trip/${userId}`);
       const data = await res.json();
       if (res.ok) {
         setTrip(data.trip);
@@ -204,7 +221,7 @@ export default function DriverApp({ userId, onLogout }) {
 
   const fetchAttendance = async (tripId) => {
     try {
-      const res = await fetch(`${API_BASE}/driver/trip/${tripId}/attendance`);
+      const res = await authFetch(`${API_BASE}/driver/trip/${tripId}/attendance`);
       const data = await res.json();
       if (res.ok) setAttendance(data);
     } catch (e) {
@@ -216,9 +233,10 @@ export default function DriverApp({ userId, onLogout }) {
     ws.current = new WebSocket(WS_BASE);
 
     ws.current.onopen = () => {
-      console.log('Driver socket opened. Registering...');
+      console.log('Driver socket opened. Registering with JWT...');
       ws.current.send(JSON.stringify({
         type: 'register',
+        token,
         role: 'driver',
         userId: userId,
         routeId: 1, // Route A link
@@ -318,9 +336,8 @@ export default function DriverApp({ userId, onLogout }) {
     const firstStop = stops[0]?.id || 1;
 
     try {
-      const res = await fetch(`${API_BASE}/driver/trip/action`, {
+      const res = await authFetch(`${API_BASE}/driver/trip/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tripId: trip.id,
           action: 'start',
@@ -348,9 +365,8 @@ export default function DriverApp({ userId, onLogout }) {
     const stopCoord = routeAPath[indexOnPath];
 
     try {
-      const res = await fetch(`${API_BASE}/driver/trip/action`, {
+      const res = await authFetch(`${API_BASE}/driver/trip/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tripId: trip.id,
           action: 'reach_stop',
@@ -360,7 +376,6 @@ export default function DriverApp({ userId, onLogout }) {
         })
       });
       if (res.ok) {
-        // Fetch refreshed attendance statuses (auto boards present students)
         fetchAttendance(trip.id);
         alert(`Arrived at stop: ${stop.name}. Boarding passengers.`);
       }
@@ -376,9 +391,8 @@ export default function DriverApp({ userId, onLogout }) {
     const stopCoord = routeAPath[indexOnPath];
 
     try {
-      const res = await fetch(`${API_BASE}/driver/trip/action`, {
+      const res = await authFetch(`${API_BASE}/driver/trip/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tripId: trip.id,
           action: 'leave_stop',
@@ -388,7 +402,6 @@ export default function DriverApp({ userId, onLogout }) {
         })
       });
       if (res.ok) {
-        // Move focus target to next scheduled stop sequence
         setActiveStopIndex(prev => Math.min(stops.length - 1, prev + 1));
       }
     } catch (e) {
@@ -401,9 +414,8 @@ export default function DriverApp({ userId, onLogout }) {
     const endCoord = routeAPath[routeAPath.length - 1];
 
     try {
-      const res = await fetch(`${API_BASE}/driver/trip/action`, {
+      const res = await authFetch(`${API_BASE}/driver/trip/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tripId: trip.id,
           action: 'end',
@@ -424,9 +436,8 @@ export default function DriverApp({ userId, onLogout }) {
   const handleToggleAttendance = async (attId, currentStatus) => {
     const nextStatus = currentStatus === 'present' ? 'absent' : 'present';
     try {
-      const res = await fetch(`${API_BASE}/driver/trip/attendance/toggle`, {
+      const res = await authFetch(`${API_BASE}/driver/trip/attendance/toggle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attendanceId: attId, status: nextStatus })
       });
       if (res.ok) {
@@ -440,9 +451,8 @@ export default function DriverApp({ userId, onLogout }) {
   const handleWaitAction = async (action) => {
     if (!waitAlert) return;
     try {
-      const res = await fetch(`${API_BASE}/driver/wait-request/action`, {
+      const res = await authFetch(`${API_BASE}/driver/wait-request/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId: waitAlert.requestId, action })
       });
       if (res.ok) {

@@ -6,23 +6,28 @@ import AdminDashboard from './components/AdminDashboard';
 
 export default function App() {
   const [theme, setTheme] = useState('dark');
-  const [userRole, setUserRole] = useState(null); // 'student', 'driver', 'admin', 'sandbox', or null (login)
+  const [userRole, setUserRole] = useState(null); // 'student', 'driver', 'admin', 'sandbox', or null
   const [currentUserId, setCurrentUserId] = useState(null); // ID of logged user
+  const [token, setToken] = useState(localStorage.getItem('vesa_token') || null);
 
   // Form logins
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
+  // Sandbox multi-tokens
+  const [sandboxTokens, setSandboxTokens] = useState({ student: null, driver: null, admin: null });
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
+  const loginUrl = isDev ? 'http://localhost:5001/api/auth/login' : '/api/auth/login';
+
   const handleLogin = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setLoginError('');
-    const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
-    const loginUrl = isDev ? 'http://localhost:5001/api/auth/login' : '/api/auth/login';
     try {
       const res = await fetch(loginUrl, {
         method: 'POST',
@@ -36,10 +41,12 @@ export default function App() {
         return;
       }
 
+      setToken(data.token);
+      localStorage.setItem('vesa_token', data.token);
       setCurrentUserId(data.user.id);
       setUserRole(data.user.role);
     } catch (err) {
-      setLoginError('Could not reach backend API server. Please make sure backend is running.');
+      setLoginError('Could not reach backend API server. Please ensure backend is running.');
     }
   };
 
@@ -56,6 +63,48 @@ export default function App() {
     }
   };
 
+  const handleEnterSandbox = async () => {
+    setLoginError('');
+    try {
+      // Authenticate all 3 test personas to supply real JWT tokens to sandbox panes
+      const [resStudent, resDriver, resAdmin] = await Promise.all([
+        fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'student1@college.edu', password: 'password123' })
+        }),
+        fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'driver1@transit.com', password: 'password123' })
+        }),
+        fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'admin@vesatransit.com', password: 'password123' })
+        })
+      ]);
+
+      const [dataStudent, dataDriver, dataAdmin] = await Promise.all([
+        resStudent.json(),
+        resDriver.json(),
+        resAdmin.json()
+      ]);
+
+      setSandboxTokens({
+        student: dataStudent.token,
+        driver: dataDriver.token,
+        admin: dataAdmin.token
+      });
+
+      setUserRole('sandbox');
+    } catch (err) {
+      console.error('Failed to initialize sandbox tokens:', err);
+      // Fallback
+      setUserRole('sandbox');
+    }
+  };
+
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
@@ -63,6 +112,8 @@ export default function App() {
   const handleLogout = () => {
     setUserRole(null);
     setCurrentUserId(null);
+    setToken(null);
+    localStorage.removeItem('vesa_token');
     setEmail('');
     setPassword('');
   };
@@ -75,7 +126,7 @@ export default function App() {
           <button onClick={handleLogout} className="btn-secondary" style={{ width: 'auto' }}>Exit Standalone Student App</button>
         </div>
         <div className="phone-emulator">
-          <StudentApp userId={currentUserId} onLogout={handleLogout} />
+          <StudentApp userId={currentUserId} token={token} onLogout={handleLogout} />
         </div>
       </div>
     );
@@ -88,7 +139,7 @@ export default function App() {
           <button onClick={handleLogout} className="btn-secondary" style={{ width: 'auto' }}>Exit Standalone Driver App</button>
         </div>
         <div className="phone-emulator">
-          <DriverApp userId={currentUserId} onLogout={handleLogout} />
+          <DriverApp userId={currentUserId} token={token} onLogout={handleLogout} />
         </div>
       </div>
     );
@@ -96,7 +147,7 @@ export default function App() {
 
   if (userRole === 'admin') {
     return (
-      <AdminDashboard onLogout={handleLogout} />
+      <AdminDashboard token={token} onLogout={handleLogout} />
     );
   }
 
@@ -131,7 +182,7 @@ export default function App() {
           {/* Pane 1: Admin Web Dashboard */}
           <div style={{ flex: '1 1 800px', minWidth: '400px', background: 'var(--bg-surface-solid)', border: '1px solid var(--border-color)', borderRadius: '24px', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
             <div style={{ height: '780px', overflowY: 'auto' }}>
-              <AdminDashboard onLogout={handleLogout} />
+              <AdminDashboard token={sandboxTokens.admin} onLogout={handleLogout} />
             </div>
           </div>
 
@@ -139,7 +190,7 @@ export default function App() {
           <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)' }}>Driver Console (BUS-101)</span>
             <div className="phone-emulator">
-              <DriverApp userId={6} onLogout={handleLogout} />
+              <DriverApp userId={6} token={sandboxTokens.driver} onLogout={handleLogout} />
             </div>
           </div>
 
@@ -147,7 +198,7 @@ export default function App() {
           <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)' }}>Student App (Alex Mercer)</span>
             <div className="phone-emulator">
-              <StudentApp userId={1} onLogout={handleLogout} />
+              <StudentApp userId={1} token={sandboxTokens.student} onLogout={handleLogout} />
             </div>
           </div>
         </div>
@@ -176,9 +227,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Demo Sandbox Entry Option (Primary spotlighted click) */}
+        {/* Demo Sandbox Entry Option */}
         <button 
-          onClick={() => setUserRole('sandbox')}
+          onClick={handleEnterSandbox}
           className="btn-primary" 
           style={{ 
             padding: '16px', fontSize: '15px', 

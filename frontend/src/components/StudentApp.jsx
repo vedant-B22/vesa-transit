@@ -82,7 +82,7 @@ function RecenterMap({ coords }) {
   return null;
 }
 
-export default function StudentApp({ userId, onLogout }) {
+export default function StudentApp({ userId, token, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
   const [profile, setProfile] = useState(null);
   const [trip, setTrip] = useState(null);
@@ -94,6 +94,25 @@ export default function StudentApp({ userId, onLogout }) {
   const [dailyRequestsCount, setDailyRequestsCount] = useState(0);
   const [sosActive, setSosActive] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  // Authenticated fetch helper that automatically attaches JWT and handles 401
+  const authFetch = async (url, options = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401 && onLogout) {
+        onLogout();
+      }
+      return res;
+    } catch (err) {
+      console.error('Fetch error:', err);
+      throw err;
+    }
+  };
 
   // Proximity 5-minute Alarm State
   const [isAlarmRinging, setIsAlarmRinging] = useState(false);
@@ -259,7 +278,7 @@ export default function StudentApp({ userId, onLogout }) {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch(`${API_BASE}/student/profile/${userId}`);
+      const res = await authFetch(`${API_BASE}/student/profile/${userId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setProfile(data);
@@ -275,8 +294,7 @@ export default function StudentApp({ userId, onLogout }) {
 
   const fetchTripDetails = async (routeId, busId) => {
     try {
-      // Find driver/trip info
-      const res = await fetch(`${API_BASE}/driver/trip/6`); // Mock check using driver 1/bus 101 path
+      const res = await authFetch(`${API_BASE}/driver/trip/6`);
       const data = await res.json();
       if (res.ok) {
         if (data.trip && data.trip.route_id === routeId) {
@@ -291,11 +309,11 @@ export default function StudentApp({ userId, onLogout }) {
 
   const fetchFees = async () => {
     try {
-      const res = await fetch(`${API_BASE}/student/fees/${userId}`);
+      const res = await authFetch(`${API_BASE}/student/fees/${userId}`);
       const data = await res.json();
       if (res.ok) {
         setFeeData(data.fee);
-        setPayments(data.payments);
+        setPayments(data.payments || []);
       }
     } catch (e) {
       console.error(e);
@@ -306,12 +324,13 @@ export default function StudentApp({ userId, onLogout }) {
     ws.current = new WebSocket(WS_BASE);
 
     ws.current.onopen = () => {
-      console.log('Student socket opened. Registering...');
+      console.log('Student socket opened. Registering with JWT...');
       ws.current.send(JSON.stringify({
         type: 'register',
+        token,
         role: 'student',
         userId: userId,
-        busId: 1 // Seed registers student on Bus 101
+        busId: profile?.bus_id || 1
       }));
     };
 
@@ -384,9 +403,8 @@ export default function StudentApp({ userId, onLogout }) {
     const nextState = !isComingToday;
     const today = new Date().toISOString().split('T')[0];
     try {
-      const res = await fetch(`${API_BASE}/student/not-coming`, {
+      const res = await authFetch(`${API_BASE}/student/not-coming`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentId: userId,
           date: today,
@@ -404,9 +422,8 @@ export default function StudentApp({ userId, onLogout }) {
 
   const handleScanBusQR = async (code) => {
     try {
-      const res = await fetch(`${API_BASE}/student/scan-bus-qr`, {
+      const res = await authFetch(`${API_BASE}/student/scan-bus-qr`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentId: userId,
           busQrCode: code || 'VESA_BUS_101',
@@ -434,9 +451,8 @@ export default function StudentApp({ userId, onLogout }) {
     }
     
     try {
-      const res = await fetch(`${API_BASE}/student/wait-request`, {
+      const res = await authFetch(`${API_BASE}/student/wait-request`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentId: userId,
           stopId: profile.pickup_stop_id,
@@ -458,15 +474,13 @@ export default function StudentApp({ userId, onLogout }) {
   };
 
   const handleSOS = async () => {
-    // Standard mock coordinates for student boarding spot (Majestic Gate)
     const lat = 12.9716;
     const lng = 77.5946;
     setSosActive(true);
 
     try {
-      await fetch(`${API_BASE}/student/sos`, {
+      await authFetch(`${API_BASE}/student/sos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId: userId, latitude: lat, longitude: lng })
       });
     } catch (e) {
@@ -477,33 +491,11 @@ export default function StudentApp({ userId, onLogout }) {
   const cancelSOS = async () => {
     setSosActive(false);
     try {
-      await fetch(`${API_BASE}/admin/sos-resolve`, {
+      await authFetch(`${API_BASE}/admin/sos-resolve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId: userId })
       });
       showToast('SOS Resolved', 'Emergency alert has been cleared.');
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handlePayFee = async () => {
-    if (!feeData || feeData.pending_amount <= 0) return;
-    try {
-      const res = await fetch(`${API_BASE}/student/fees/pay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentId: userId,
-          amount: Math.min(200, feeData.pending_amount), // Pay in 200 increments for simulation
-          paymentMethod: 'UPI / Credit Card'
-        })
-      });
-      if (res.ok) {
-        fetchFees();
-        showToast('Payment Successful', 'Bus fee transaction processed.');
-      }
     } catch (e) {
       console.error(e);
     }
@@ -519,9 +511,8 @@ export default function StudentApp({ userId, onLogout }) {
     setIsChatLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/student/ai-chat`, {
+      const res = await authFetch(`${API_BASE}/student/ai-chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId: userId, message: userQuery })
       });
       const data = await res.json();
@@ -537,9 +528,8 @@ export default function StudentApp({ userId, onLogout }) {
     e.preventDefault();
     if (!complaintDesc.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/student/complaints`, {
+      const res = await authFetch(`${API_BASE}/student/complaints`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentId: userId,
           category: complaintCat,
@@ -560,9 +550,8 @@ export default function StudentApp({ userId, onLogout }) {
     e.preventDefault();
     if (!lfName.trim() || !lfDesc.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/student/lost-found`, {
+      const res = await authFetch(`${API_BASE}/student/lost-found`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reporterRole: 'student',
           reporterId: userId,
@@ -898,11 +887,14 @@ export default function StudentApp({ userId, onLogout }) {
               </div>
             </div>
 
-            {feeData.pending_amount > 0 && (
-              <button className="btn-primary" onClick={handlePayFee}>
-                <CreditCard size={16} /> Pay Due Balance ($200)
-              </button>
-            )}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderLeft: '4px solid var(--accent-cyan)' }}>
+              <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--accent-cyan)' }}>
+                Official Fee Administration Notice
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                All tuition bus transport fees are reconciled manually by the college accounts department. Please pay at the campus accounts desk quoting your Roll Number ({profile?.roll_number}). Your fee status will update immediately upon administrator verification.
+              </div>
+            </div>
 
             <div className="glass-card">
               <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Payment History</h4>

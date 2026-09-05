@@ -27,11 +27,11 @@ export const predictDelay = (distanceKm, baseDurationMins, trafficFactor = 1.0, 
  */
 export const optimizeRoute = async (tripId) => {
   // Get route and stops
-  const trip = await db.get('SELECT * FROM trips WHERE id = ?', [tripId]);
+  const trip = await db.get('SELECT * FROM trips WHERE id = $1', [tripId]);
   if (!trip) return null;
 
   const stops = await db.query(
-    'SELECT * FROM stops WHERE route_id = ? ORDER BY sequence_order ASC',
+    'SELECT * FROM stops WHERE route_id = $1 ORDER BY sequence_order ASC',
     [trip.route_id]
   );
 
@@ -40,9 +40,9 @@ export const optimizeRoute = async (tripId) => {
   const activeStudents = await db.query(
     `SELECT s.user_id, s.pickup_stop_id 
      FROM students s
-     WHERE s.route_id = ? 
+     WHERE s.route_id = $1 
        AND s.user_id NOT IN (
-         SELECT student_id FROM not_coming WHERE date = ?
+         SELECT student_id FROM not_coming WHERE date = $2
        )`,
     [trip.route_id, todayStr]
   );
@@ -97,7 +97,7 @@ export const getPredictiveMaintenanceList = async () => {
   for (const bus of buses) {
     // Get last completed service details
     const lastService = await db.get(
-      'SELECT * FROM maintenance WHERE bus_id = ? AND status = "completed" ORDER BY service_date DESC LIMIT 1',
+      "SELECT * FROM maintenance WHERE bus_id = $1 AND status = 'completed' ORDER BY service_date DESC LIMIT 1",
       [bus.id]
     );
 
@@ -150,7 +150,7 @@ export const getPredictiveMaintenanceList = async () => {
  * Processes user queries using DB context and outputs personalized human-like transit responses.
  */
 export const answerStudentQuery = async (studentUserId, questionText) => {
-  const q = questionText.toLowerCase();
+  const q = (questionText || '').toLowerCase();
   
   // Fetch student and their assigned bus/route details
   const student = await db.get(
@@ -160,7 +160,7 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
      LEFT JOIN routes r ON s.route_id = r.id
      LEFT JOIN buses b ON s.bus_id = b.id
      LEFT JOIN stops st ON s.pickup_stop_id = st.id
-     WHERE s.user_id = ?`,
+     WHERE s.user_id = $1`,
     [studentUserId]
   );
 
@@ -178,12 +178,12 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
        JOIN drivers d ON t.driver_id = d.user_id
        LEFT JOIN stops s_curr ON t.current_stop_id = s_curr.id
        LEFT JOIN stops s_next ON t.next_stop_id = s_next.id
-       WHERE t.bus_id = ? AND t.status = "active"`,
+       WHERE t.bus_id = $1 AND t.status = 'active'`,
       [student.bus_id]
     );
 
     if (!activeTrip) {
-      return `Hi ${student.name.split(' ')[0]}! Your assigned bus **${student.bus_number}** (Route: ${student.route_name}) is currently **not on a trip**. Trips usually start at 7:30 AM for the morning route.`;
+      return `Hi ${student.name.split(' ')[0]}! Your assigned bus **${student.bus_number || '101'}** (Route: ${student.route_name || 'Assigned Route'}) is currently **not on a trip**. Trips usually start at 7:30 AM for the morning route.`;
     }
 
     const etaText = activeTrip.eta_mins 
@@ -202,7 +202,7 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
       ? `travelling at **${Math.round(activeTrip.speed)} km/h**` 
       : 'currently halted';
 
-    return `Hi ${student.name.split(' ')[0]}! Bus **${student.bus_number}** is currently active on **${student.route_name}**. It is ${currentStopText}, ${nextStopText}, and ${speedText}. The current ETA to your pickup stop (**${student.stop_name}**) is ${etaText}. Driver **${activeTrip.driver_name}** (${activeTrip.driver_phone}) is on duty.`;
+    return `Hi ${student.name.split(' ')[0]}! Bus **${student.bus_number}** is currently active on **${student.route_name}**. It is ${currentStopText}, ${nextStopText}, and ${speedText}. The current ETA to your pickup stop (**${student.stop_name || 'Assigned Stop'}**) is ${etaText}. Driver **${activeTrip.driver_name}** (${activeTrip.driver_phone}) is on duty.`;
   }
 
   // 2. Delay query
@@ -211,26 +211,26 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
       `SELECT t.*, r.estimated_duration_mins
        FROM trips t
        JOIN routes r ON t.route_id = r.id
-       WHERE t.bus_id = ? AND t.status = "active"`,
+       WHERE t.bus_id = $1 AND t.status = 'active'`,
       [student.bus_id]
     );
 
     if (!activeTrip) {
-      return `Your bus **${student.bus_number}** is not running right now. No delays are reported.`;
+      return `Your bus **${student.bus_number || '101'}** is not running right now. No delays are reported.`;
     }
 
     // Check if there's any active wait requests accepted which might add delay
     const acceptedDelays = await db.get(
-      'SELECT COUNT(*) as count FROM wait_requests WHERE trip_id = ? AND status = "accepted"',
+      "SELECT COUNT(*) as count FROM wait_requests WHERE trip_id = $1 AND status = 'accepted'",
       [activeTrip.id]
     );
 
     let delayReason = "minor morning traffic";
-    if (acceptedDelays.count > 0) {
+    if (parseInt(acceptedDelays?.count || '0', 10) > 0) {
       delayReason = `traffic and ${acceptedDelays.count} student delay request(s)`;
     }
 
-    const delayMins = activeTrip.eta_mins ? Math.max(0, activeTrip.eta_mins - 10) : 0; // Simulated calculation
+    const delayMins = activeTrip.eta_mins ? Math.max(0, activeTrip.eta_mins - 10) : 0;
     if (delayMins > 0) {
       return `Yes ${student.name.split(' ')[0]}, the bus is experiencing a delay of about **${delayMins} minutes** due to ${delayReason}. We apologize for the inconvenience!`;
     } else {
@@ -241,7 +241,7 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
   // 3. Fee Query
   if (q.includes('fee') || q.includes('pay') || q.includes('due') || q.includes('money') || q.includes('cost')) {
     const feeInfo = await db.get(
-      'SELECT * FROM fees WHERE student_id = ?',
+      'SELECT * FROM fees WHERE student_id = $1',
       [student.user_id]
     );
 
@@ -252,14 +252,14 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
     if (feeInfo.pending_amount === 0) {
       return `Hi ${student.name.split(' ')[0]}! Your bus fee of **$${feeInfo.total_amount}** is **Fully Paid**. You have no outstanding dues. Thank you!`;
     } else {
-      return `Hi ${student.name.split(' ')[0]}. You have a pending bus fee balance of **$${feeInfo.pending_amount}** (Total fee: $${feeInfo.total_amount}, Paid: $${feeInfo.paid_amount}). The due date is **${feeInfo.due_date}**. You can make payments via the Bus Fees tab in the app.`;
+      return `Hi ${student.name.split(' ')[0]}. You have a pending bus fee balance of **$${feeInfo.pending_amount}** (Total fee: $${feeInfo.total_amount}, Paid: $${feeInfo.paid_amount}). The due date is **${feeInfo.due_date}**. Payments must be verified and approved by the campus administrative office.`;
     }
   }
 
   // 4. Route / Stop queries
   if (q.includes('route') || q.includes('stop') || q.includes('pickup') || q.includes('where do i board')) {
     const stopsList = await db.query(
-      'SELECT name, scheduled_time, sequence_order FROM stops WHERE route_id = ? ORDER BY sequence_order ASC',
+      'SELECT name, scheduled_time, sequence_order FROM stops WHERE route_id = $1 ORDER BY sequence_order ASC',
       [student.route_id]
     );
 
@@ -267,7 +267,7 @@ export const answerStudentQuery = async (studentUserId, questionText) => {
       .map(s => `${s.sequence_order}. ${s.name} (${s.scheduled_time})`)
       .join('\n');
 
-    return `Hi ${student.name.split(' ')[0]}. You are assigned to **${student.route_name}** on **${student.bus_number}**.\n\nYour pickup stop is **${student.stop_name}**.\n\nHere is the full route schedule:\n${stopsString}`;
+    return `Hi ${student.name.split(' ')[0]}. You are assigned to **${student.route_name || 'Assigned Route'}** on **${student.bus_number || '101'}**.\n\nYour pickup stop is **${student.stop_name || 'Designated Stop'}**.\n\nHere is the full route schedule:\n${stopsString}`;
   }
 
   // 5. Default conversational greeting / help
@@ -287,12 +287,12 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
 
   // Fetch driver info and active trip
   const driver = await db.get(
-    `SELECT d.*, u.name, b.bus_number, r.name as route_name, r.id as route_id
+    `SELECT d.*, u.email, b.bus_number, r.name as route_name, r.id as route_id
      FROM drivers d
      JOIN users u ON d.user_id = u.id
-     LEFT JOIN buses b ON d.bus_id = b.id
-     LEFT JOIN routes r ON d.route_id = r.id
-     WHERE d.user_id = ?`,
+     LEFT JOIN buses b ON d.active_bus_id = b.id
+     LEFT JOIN routes r ON r.id = (CASE WHEN d.active_bus_id = 1 THEN 1 ELSE 2 END)
+     WHERE d.user_id = $1`,
     [driverId]
   );
 
@@ -301,9 +301,9 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
      FROM trips t
      LEFT JOIN stops st ON t.current_stop_id = st.id
      LEFT JOIN stops nst ON t.next_stop_id = nst.id
-     WHERE (t.driver_id = ? OR t.bus_id = ?) AND t.status IN ('active', 'started', 'en_route')
+     WHERE (t.driver_id = $1 OR t.bus_id = $2) AND t.status IN ('active', 'started', 'en_route')
      ORDER BY t.created_at DESC LIMIT 1`,
-    [driverId, driver?.bus_id || 1]
+    [driverId, driver?.active_bus_id || 1]
   );
 
   // Fetch student roster status for this route
@@ -315,9 +315,9 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
                  ELSE 'absent' END as passenger_status
      FROM students s
      LEFT JOIN stops st ON s.pickup_stop_id = st.id
-     LEFT JOIN not_coming nc ON s.user_id = nc.student_id AND nc.date = ?
-     LEFT JOIN attendance a ON s.user_id = a.student_id AND a.trip_id = ?
-     WHERE s.route_id = ?`,
+     LEFT JOIN not_coming nc ON s.user_id = nc.student_id AND nc.date = $1
+     LEFT JOIN attendance a ON s.user_id = a.student_id AND a.trip_id = $2
+     WHERE s.route_id = $3`,
     [todayStr, activeTrip?.id || 0, routeId]
   );
 

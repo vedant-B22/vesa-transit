@@ -29,7 +29,7 @@ const adminBusIcon = L.divIcon({
   iconSize: [30, 30]
 });
 
-export default function AdminDashboard({ onLogout }) {
+export default function AdminDashboard({ token, onLogout }) {
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [stats, setStats] = useState({
     activeTrips: 0,
@@ -59,6 +59,14 @@ export default function AdminDashboard({ onLogout }) {
   const [csvText, setCsvText] = useState('');
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
 
+  // Fee Approval State
+  const [feeModalStudent, setFeeModalStudent] = useState(null);
+  const [feeAmount, setFeeAmount] = useState('');
+  const [feeStatus, setFeeStatus] = useState('paid');
+  const [feePaymentMethod, setFeePaymentMethod] = useState('Campus Cashier');
+  const [feeNotes, setFeeNotes] = useState('');
+  const [feeSubmitting, setFeeSubmitting] = useState(false);
+
   // Broadcast settings
   const [broadcastType, setBroadcastType] = useState('all');
   const [broadcastTargetId, setBroadcastTargetId] = useState('');
@@ -80,6 +88,24 @@ export default function AdminDashboard({ onLogout }) {
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
   const ws = useRef(null);
+
+  const authFetch = async (url, options = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401 && onLogout) {
+        onLogout();
+      }
+      return res;
+    } catch (err) {
+      console.error('Fetch error:', err);
+      throw err;
+    }
+  };
 
   useEffect(() => {
     if (isScanning) {
@@ -138,7 +164,7 @@ export default function AdminDashboard({ onLogout }) {
 
   const fetchDashboardData = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/dashboard`);
+      const res = await authFetch(`${API_BASE}/admin/dashboard`);
       const data = await res.json();
       if (res.ok) {
         setStats(data.stats);
@@ -155,7 +181,7 @@ export default function AdminDashboard({ onLogout }) {
 
   const fetchLiveTracking = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/tracking/live`);
+      const res = await authFetch(`${API_BASE}/admin/tracking/live`);
       const data = await res.json();
       if (res.ok) setLiveTrips(data);
     } catch (e) {
@@ -165,7 +191,7 @@ export default function AdminDashboard({ onLogout }) {
 
   const fetchStudentList = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/students`);
+      const res = await authFetch(`${API_BASE}/admin/students`);
       const data = await res.json();
       if (res.ok) setStudents(data);
     } catch (e) {
@@ -175,7 +201,7 @@ export default function AdminDashboard({ onLogout }) {
 
   const fetchDriverList = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/drivers`);
+      const res = await authFetch(`${API_BASE}/admin/drivers`);
       const data = await res.json();
       if (res.ok) setDrivers(data);
     } catch (e) {
@@ -185,7 +211,7 @@ export default function AdminDashboard({ onLogout }) {
 
   const fetchBusList = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/buses`);
+      const res = await authFetch(`${API_BASE}/admin/buses`);
       const data = await res.json();
       if (res.ok) setBuses(data);
     } catch (e) {
@@ -195,7 +221,7 @@ export default function AdminDashboard({ onLogout }) {
 
   const fetchRouteList = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/routes`);
+      const res = await authFetch(`${API_BASE}/admin/routes`);
       const data = await res.json();
       if (res.ok) setRoutes(data);
     } catch (e) {
@@ -209,8 +235,9 @@ export default function AdminDashboard({ onLogout }) {
     ws.current.onopen = () => {
       ws.current.send(JSON.stringify({
         type: 'register',
+        token,
         role: 'admin',
-        userId: 99
+        userId: 8
       }));
     };
 
@@ -240,9 +267,8 @@ export default function AdminDashboard({ onLogout }) {
 
   const handleResolveSOS = async (studentId) => {
     try {
-      const res = await fetch(`${API_BASE}/admin/sos-resolve`, {
+      const res = await authFetch(`${API_BASE}/admin/sos-resolve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId })
       });
       if (res.ok) fetchDashboardData();
@@ -254,9 +280,8 @@ export default function AdminDashboard({ onLogout }) {
   const handleAddStudent = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API_BASE}/admin/students`, {
+      const res = await authFetch(`${API_BASE}/admin/students`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(studentForm)
       });
       if (res.ok) {
@@ -272,7 +297,7 @@ export default function AdminDashboard({ onLogout }) {
   const handleDeleteStudent = async (id) => {
     if (!confirm('Are you sure you want to delete this student?')) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/students/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`${API_BASE}/admin/students/${id}`, { method: 'DELETE' });
       if (res.ok) fetchStudentList();
     } catch (e) {
       console.error(e);
@@ -281,7 +306,6 @@ export default function AdminDashboard({ onLogout }) {
 
   const handleImportCSV = async () => {
     if (!csvText.trim()) return;
-    // Format expected: name,email,rollNumber,emergencyContact
     const lines = csvText.split('\n');
     const importList = [];
     for (const line of lines) {
@@ -300,16 +324,18 @@ export default function AdminDashboard({ onLogout }) {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/admin/students/import-csv`, {
+      const res = await authFetch(`${API_BASE}/admin/students/import-csv`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ students: importList })
       });
+      const data = await res.json();
       if (res.ok) {
         fetchStudentList();
         setIsCsvModalOpen(false);
         setCsvText('');
-        alert(`Successfully imported ${importList.length} students.`);
+        alert(`Successfully imported ${data.count || importList.length} students with secure passwords generated!`);
+      } else {
+        alert(data.error || 'Import failed.');
       }
     } catch (e) {
       console.error(e);
@@ -320,9 +346,8 @@ export default function AdminDashboard({ onLogout }) {
     const codeToVerify = typeof code === 'string' ? code.trim() : '';
     if (!codeToVerify) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/verify-scan`, {
+      const res = await authFetch(`${API_BASE}/admin/verify-scan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ qrCodePass: codeToVerify })
       });
       const data = await res.json();
@@ -351,9 +376,8 @@ export default function AdminDashboard({ onLogout }) {
     e.preventDefault();
     if (!broadcastTitle.trim() || !broadcastMsg.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/broadcast`, {
+      const res = await authFetch(`${API_BASE}/admin/broadcast`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipientType: broadcastType,
           recipientId: broadcastTargetId ? parseInt(broadcastTargetId) : null,
@@ -372,9 +396,43 @@ export default function AdminDashboard({ onLogout }) {
     }
   };
 
+  const handleMarkFeePaid = async (e) => {
+    e.preventDefault();
+    if (!feeModalStudent) return;
+    setFeeSubmitting(true);
+    try {
+      const res = await authFetch(`${API_BASE}/admin/fees/mark-paid`, {
+        method: 'POST',
+        body: JSON.stringify({
+          studentId: feeModalStudent.user_id || feeModalStudent.id,
+          amount: parseFloat(feeAmount) || 0,
+          status: feeStatus,
+          paymentMethod: feePaymentMethod,
+          notes: feeNotes
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeeModalStudent(null);
+        setFeeAmount('');
+        setFeeNotes('');
+        fetchStudentList();
+        fetchDashboardData();
+        alert(`Fee status updated to: ${data.status.toUpperCase()}`);
+      } else {
+        alert(data.error || 'Failed to update fee record');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Network error updating fee');
+    } finally {
+      setFeeSubmitting(false);
+    }
+  };
+
   const triggerExport = async (format, reportType) => {
     try {
-      const res = await fetch(`${API_BASE}/admin/reports/export?format=${format}&reportType=${reportType}`);
+      const res = await authFetch(`${API_BASE}/admin/reports/export?format=${format}&reportType=${reportType}`);
       const data = await res.json();
       if (res.ok) {
         alert(`${data.message}\nDownloading from: ${data.url}`);
@@ -722,7 +780,12 @@ export default function AdminDashboard({ onLogout }) {
 
             {/* Students roster grid */}
             <div className="glass-card">
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Student Database Registry</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Student Database & Fee Approval Registry</h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Total pending fee balance: <b>${stats.pendingFees || 0}</b>
+                </span>
+              </div>
               <div className="table-responsive">
                 <table className="premium-table">
                   <thead>
@@ -733,7 +796,8 @@ export default function AdminDashboard({ onLogout }) {
                       <th>Bus Line</th>
                       <th>Pickup Stop</th>
                       <th>Fee Status</th>
-                      <th>Actions</th>
+                      <th>Pending Due</th>
+                      <th>Fee Approval & Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -750,13 +814,30 @@ export default function AdminDashboard({ onLogout }) {
                             background: s.fee_status === 'paid' ? 'rgba(16,185,129,0.1)' : s.fee_status === 'partial' ? 'rgba(245,158,11,0.1)' : 'rgba(244,63,94,0.1)',
                             color: s.fee_status === 'paid' ? 'var(--accent-emerald)' : s.fee_status === 'partial' ? 'var(--accent-amber)' : 'var(--accent-rose)'
                           }}>
-                            {s.fee_status}
+                            {s.fee_status?.toUpperCase()}
                           </span>
                         </td>
+                        <td style={{ fontWeight: '600', color: (s.pending_amount > 0 ? 'var(--accent-amber)' : 'var(--text-secondary)') }}>
+                          ${s.pending_amount !== undefined ? s.pending_amount : (s.fee_status === 'paid' ? 0 : 800)}
+                        </td>
                         <td>
-                          <button onClick={() => handleDeleteStudent(s.user_id)} style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer' }}>
-                            <Trash2 size={16} />
-                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button 
+                              onClick={() => {
+                                setFeeModalStudent(s);
+                                setFeeAmount(s.pending_amount ? String(s.pending_amount) : '800');
+                                setFeeStatus(s.pending_amount === 0 ? 'paid' : 'paid');
+                              }} 
+                              className="btn-primary" 
+                              style={{ padding: '4px 10px', fontSize: '11px', width: 'auto' }}
+                              title="Manual Admin Fee Approval"
+                            >
+                              Approve / Update Fee
+                            </button>
+                            <button onClick={() => handleDeleteStudent(s.user_id)} style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}>
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -764,6 +845,82 @@ export default function AdminDashboard({ onLogout }) {
                 </table>
               </div>
             </div>
+
+            {/* Fee Approval Modal Overlay */}
+            {feeModalStudent && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700' }}>Admin Fee Payment Approval</h3>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      Student: <b>{feeModalStudent.name}</b> ({feeModalStudent.roll_number})
+                    </span>
+                  </div>
+
+                  <form onSubmit={handleMarkFeePaid} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payment Status</label>
+                      <select 
+                        className="input-field"
+                        value={feeStatus}
+                        onChange={e => setFeeStatus(e.target.value)}
+                        style={{ background: 'var(--bg-main)' }}
+                      >
+                        <option value="paid">Paid (Fully Cleared)</option>
+                        <option value="partial">Partial Payment</option>
+                        <option value="pending">Pending / Unpaid</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Amount to Credit ($)</label>
+                      <input 
+                        type="number"
+                        step="0.01"
+                        className="input-field"
+                        placeholder="e.g. 800"
+                        value={feeAmount}
+                        onChange={e => setFeeAmount(e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payment Method / Verification Source</label>
+                      <select 
+                        className="input-field"
+                        value={feePaymentMethod}
+                        onChange={e => setFeePaymentMethod(e.target.value)}
+                        style={{ background: 'var(--bg-main)' }}
+                      >
+                        <option value="Campus Cashier Counter">Campus Cashier Counter</option>
+                        <option value="Bank Direct Deposit / NEFT">Bank Direct Deposit / NEFT</option>
+                        <option value="Official College Cheque">Official College Cheque</option>
+                        <option value="Admin Scholarship / Fee Waiver">Admin Scholarship / Fee Waiver</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Admin Audit Notes (Optional)</label>
+                      <input 
+                        type="text"
+                        className="input-field"
+                        placeholder="Receipt # / Approval reference"
+                        value={feeNotes}
+                        onChange={e => setFeeNotes(e.target.value)}
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
+                      <button type="submit" disabled={feeSubmitting} className="btn-primary">
+                        {feeSubmitting ? 'Recording...' : 'Confirm & Approve Fee'}
+                      </button>
+                      <button type="button" onClick={() => setFeeModalStudent(null)} className="btn-secondary">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
 
             {/* CSV Import Modal Overlay */}
             {isCsvModalOpen && (
