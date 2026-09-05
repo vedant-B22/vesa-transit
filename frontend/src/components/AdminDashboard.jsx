@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  BarChart2, Users, Truck, Route, AlertTriangle, ShieldAlert, 
+  BarChart2, Users, Truck, Route as RouteIcon, AlertTriangle, ShieldAlert, 
   Plus, Edit, Trash2, Upload, Search, Bell, Download, Check, Wrench,
-  Camera, QrCode
+  Camera, QrCode, MapPin, X, Eye, Phone, Mail, FileText, CheckCircle, Navigation
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -69,9 +69,42 @@ export default function AdminDashboard({ token, onLogout }) {
   const [feeModalStudent, setFeeModalStudent] = useState(null);
   const [feeAmount, setFeeAmount] = useState('');
   const [feeStatus, setFeeStatus] = useState('paid');
-  const [feePaymentMethod, setFeePaymentMethod] = useState('Campus Cashier');
+  const [feePaymentMethod, setFeePaymentMethod] = useState('Campus Cashier Counter');
   const [feeNotes, setFeeNotes] = useState('');
   const [feeSubmitting, setFeeSubmitting] = useState(false);
+
+  // Student Edit Modal
+  const [studentEditModal, setStudentEditModal] = useState({ isOpen: false, data: null });
+
+  // Driver CRUD State
+  const [driverModal, setDriverModal] = useState({
+    isOpen: false,
+    mode: 'add',
+    data: { name: '', email: '', phone: '', licenseNumber: '', activeBusId: '', initialPassword: '' }
+  });
+
+  // Bus CRUD State
+  const [busModal, setBusModal] = useState({
+    isOpen: false,
+    mode: 'add',
+    data: { id: null, busNumber: '', registrationNumber: '', capacity: 45, totalMileage: 0, insuranceExpiry: '', status: 'active' }
+  });
+
+  // Route CRUD State
+  const [routeModal, setRouteModal] = useState({
+    isOpen: false,
+    mode: 'add',
+    data: { id: null, name: '', startLocation: '', endLocation: '', distanceKm: 15, estimatedDurationMins: 45 }
+  });
+
+  // Stops Management State (for selected route)
+  const [stopsRoute, setStopsRoute] = useState(null);
+  const [stopsList, setStopsList] = useState([]);
+  const [stopModal, setStopModal] = useState({
+    isOpen: false,
+    mode: 'add',
+    data: { id: null, name: '', latitude: 12.9716, longitude: 77.5946, sequenceOrder: 1, scheduledTime: '07:30 AM' }
+  });
 
   // Broadcast settings
   const [broadcastType, setBroadcastType] = useState('all');
@@ -115,11 +148,15 @@ export default function AdminDashboard({ token, onLogout }) {
 
   useEffect(() => {
     if (isScanning) {
-      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
+      import('html5-qrcode').then(({ Html5QrcodeScanner, Html5QrcodeScanType }) => {
         const scanner = new Html5QrcodeScanner(
           "qr-reader",
-          { fps: 10, qrbox: { width: 200, height: 200 } },
-          /* verbose= */ false
+          { 
+            fps: 10, 
+            qrbox: { width: 220, height: 220 },
+            supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
+          },
+          false
         );
 
         scanner.render(
@@ -129,9 +166,7 @@ export default function AdminDashboard({ token, onLogout }) {
             setIsScanning(false);
             scanner.clear().catch(err => console.error("Error clearing scanner", err));
           },
-          (error) => {
-            // Ignore scan failures
-          }
+          () => {}
         );
         scannerRef.current = scanner;
       });
@@ -235,6 +270,16 @@ export default function AdminDashboard({ token, onLogout }) {
     }
   };
 
+  const fetchStopsForRoute = async (routeId) => {
+    try {
+      const res = await authFetch(`${API_BASE}/admin/routes/${routeId}/stops`);
+      const data = await res.json();
+      if (res.ok) setStopsList(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const initWebSocket = () => {
     ws.current = new WebSocket(WS_BASE);
 
@@ -254,7 +299,6 @@ export default function AdminDashboard({ token, onLogout }) {
         fetchLiveTracking();
       }
       if (data.type === 'gps_broadcast') {
-        // Live updates for admin tracking list
         setLiveTrips(prev => prev.map(t => {
           if (t.id === data.tripId) {
             return {
@@ -283,6 +327,7 @@ export default function AdminDashboard({ token, onLogout }) {
     }
   };
 
+  // --- STUDENT ACTIONS ---
   const handleAddStudent = async (e) => {
     e.preventDefault();
     try {
@@ -292,8 +337,42 @@ export default function AdminDashboard({ token, onLogout }) {
       });
       if (res.ok) {
         fetchStudentList();
+        fetchDashboardData();
         setStudentForm({ name: '', email: '', rollNumber: '', busId: 1, routeId: 1, pickupStopId: 1, emergencyContact: '' });
         alert('Student successfully created.');
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Failed to create student');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleUpdateStudent = async (e) => {
+    e.preventDefault();
+    if (!studentEditModal.data) return;
+    try {
+      const s = studentEditModal.data;
+      const res = await authFetch(`${API_BASE}/admin/students/${s.user_id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: s.name,
+          email: s.email,
+          rollNumber: s.roll_number,
+          busId: s.bus_id ? parseInt(s.bus_id) : null,
+          routeId: s.route_id ? parseInt(s.route_id) : null,
+          pickupStopId: s.pickup_stop_id ? parseInt(s.pickup_stop_id) : null,
+          emergencyContact: s.emergency_contact
+        })
+      });
+      if (res.ok) {
+        setStudentEditModal({ isOpen: false, data: null });
+        fetchStudentList();
+        alert('Student updated successfully.');
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Failed to update student');
       }
     } catch (e) {
       console.error(e);
@@ -304,7 +383,10 @@ export default function AdminDashboard({ token, onLogout }) {
     if (!confirm('Are you sure you want to delete this student?')) return;
     try {
       const res = await authFetch(`${API_BASE}/admin/students/${id}`, { method: 'DELETE' });
-      if (res.ok) fetchStudentList();
+      if (res.ok) {
+        fetchStudentList();
+        fetchDashboardData();
+      }
     } catch (e) {
       console.error(e);
     }
@@ -346,6 +428,7 @@ export default function AdminDashboard({ token, onLogout }) {
       const data = await res.json();
       if (res.ok) {
         fetchStudentList();
+        fetchDashboardData();
         setIsCsvModalOpen(false);
         setCsvText('');
         let message = `Successfully imported ${data.count || 0} student(s)!`;
@@ -451,6 +534,236 @@ export default function AdminDashboard({ token, onLogout }) {
     }
   };
 
+  // --- DRIVER ACTIONS ---
+  const handleSaveDriver = async (e) => {
+    e.preventDefault();
+    const d = driverModal.data;
+    try {
+      let res;
+      if (driverModal.mode === 'add') {
+        res = await authFetch(`${API_BASE}/admin/drivers`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: d.name,
+            email: d.email,
+            phone: d.phone,
+            licenseNumber: d.licenseNumber,
+            activeBusId: d.activeBusId ? parseInt(d.activeBusId) : null,
+            initialPassword: d.initialPassword || 'Driver@123'
+          })
+        });
+      } else {
+        res = await authFetch(`${API_BASE}/admin/drivers/${d.user_id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: d.name,
+            email: d.email,
+            phone: d.phone,
+            licenseNumber: d.licenseNumber,
+            activeBusId: d.activeBusId ? parseInt(d.activeBusId) : null
+          })
+        });
+      }
+      const data = await res.json();
+      if (res.ok) {
+        setDriverModal({ isOpen: false, mode: 'add', data: { name: '', email: '', phone: '', licenseNumber: '', activeBusId: '', initialPassword: '' } });
+        fetchDriverList();
+        fetchDashboardData();
+        alert(driverModal.mode === 'add' ? `Driver enrolled! Temporary Password: ${data.temporaryPassword || d.initialPassword}` : 'Driver updated successfully.');
+      } else {
+        alert(data.error || 'Failed to save driver');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteDriver = async (userId) => {
+    if (!confirm('Are you sure you want to remove this driver?')) return;
+    try {
+      const res = await authFetch(`${API_BASE}/admin/drivers/${userId}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchDriverList();
+        fetchDashboardData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- BUS ACTIONS ---
+  const handleSaveBus = async (e) => {
+    e.preventDefault();
+    const b = busModal.data;
+    try {
+      let res;
+      if (busModal.mode === 'add') {
+        res = await authFetch(`${API_BASE}/admin/buses`, {
+          method: 'POST',
+          body: JSON.stringify({
+            busNumber: b.busNumber,
+            registrationNumber: b.registrationNumber,
+            capacity: parseInt(b.capacity),
+            totalMileage: parseFloat(b.totalMileage) || 0,
+            insuranceExpiry: b.insuranceExpiry,
+            status: b.status || 'active'
+          })
+        });
+      } else {
+        res = await authFetch(`${API_BASE}/admin/buses/${b.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            busNumber: b.busNumber,
+            registrationNumber: b.registrationNumber,
+            capacity: parseInt(b.capacity),
+            totalMileage: parseFloat(b.totalMileage) || 0,
+            insuranceExpiry: b.insuranceExpiry,
+            status: b.status || 'active'
+          })
+        });
+      }
+      const data = await res.json();
+      if (res.ok) {
+        setBusModal({ isOpen: false, mode: 'add', data: { id: null, busNumber: '', registrationNumber: '', capacity: 45, totalMileage: 0, insuranceExpiry: '', status: 'active' } });
+        fetchBusList();
+        fetchDashboardData();
+        alert(busModal.mode === 'add' ? 'Bus unit added to fleet!' : 'Bus details updated.');
+      } else {
+        alert(data.error || 'Failed to save bus');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteBus = async (busId) => {
+    if (!confirm('Are you sure you want to delete this bus unit?')) return;
+    try {
+      const res = await authFetch(`${API_BASE}/admin/buses/${busId}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchBusList();
+        fetchDashboardData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- ROUTE ACTIONS ---
+  const handleSaveRoute = async (e) => {
+    e.preventDefault();
+    const r = routeModal.data;
+    try {
+      let res;
+      if (routeModal.mode === 'add') {
+        res = await authFetch(`${API_BASE}/admin/routes`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: r.name,
+            startLocation: r.startLocation,
+            endLocation: r.endLocation,
+            distanceKm: parseFloat(r.distanceKm),
+            estimatedDurationMins: parseInt(r.estimatedDurationMins)
+          })
+        });
+      } else {
+        res = await authFetch(`${API_BASE}/admin/routes/${r.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: r.name,
+            startLocation: r.startLocation,
+            endLocation: r.endLocation,
+            distanceKm: parseFloat(r.distanceKm),
+            estimatedDurationMins: parseInt(r.estimatedDurationMins)
+          })
+        });
+      }
+      const data = await res.json();
+      if (res.ok) {
+        setRouteModal({ isOpen: false, mode: 'add', data: { id: null, name: '', startLocation: '', endLocation: '', distanceKm: 15, estimatedDurationMins: 45 } });
+        fetchRouteList();
+        alert(routeModal.mode === 'add' ? 'Route created successfully!' : 'Route updated.');
+      } else {
+        alert(data.error || 'Failed to save route');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteRoute = async (routeId) => {
+    if (!confirm('Are you sure you want to delete this route and its stops?')) return;
+    try {
+      const res = await authFetch(`${API_BASE}/admin/routes/${routeId}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchRouteList();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- STOP ACTIONS ---
+  const handleOpenManageStops = (route) => {
+    setStopsRoute(route);
+    fetchStopsForRoute(route.id);
+  };
+
+  const handleSaveStop = async (e) => {
+    e.preventDefault();
+    const s = stopModal.data;
+    try {
+      let res;
+      if (stopModal.mode === 'add') {
+        res = await authFetch(`${API_BASE}/admin/stops`, {
+          method: 'POST',
+          body: JSON.stringify({
+            routeId: stopsRoute.id,
+            name: s.name,
+            latitude: parseFloat(s.latitude) || 12.9716,
+            longitude: parseFloat(s.longitude) || 77.5946,
+            sequenceOrder: parseInt(s.sequenceOrder) || 1,
+            scheduledTime: s.scheduledTime
+          })
+        });
+      } else {
+        res = await authFetch(`${API_BASE}/admin/stops/${s.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: s.name,
+            latitude: parseFloat(s.latitude) || 12.9716,
+            longitude: parseFloat(s.longitude) || 77.5946,
+            sequenceOrder: parseInt(s.sequenceOrder) || 1,
+            scheduledTime: s.scheduledTime
+          })
+        });
+      }
+      const data = await res.json();
+      if (res.ok) {
+        setStopModal({ isOpen: false, mode: 'add', data: { id: null, name: '', latitude: 12.9716, longitude: 77.5946, sequenceOrder: 1, scheduledTime: '07:30 AM' } });
+        fetchStopsForRoute(stopsRoute.id);
+        fetchRouteList();
+      } else {
+        alert(data.error || 'Failed to save stop');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteStop = async (stopId) => {
+    if (!confirm('Are you sure you want to delete this stop?')) return;
+    try {
+      const res = await authFetch(`${API_BASE}/admin/stops/${stopId}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchStopsForRoute(stopsRoute.id);
+        fetchRouteList();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const triggerExport = async (format, reportType) => {
     try {
       const res = await authFetch(`${API_BASE}/admin/reports/export?format=${format}&reportType=${reportType}`);
@@ -475,11 +788,11 @@ export default function AdminDashboard({ token, onLogout }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {[
             { id: 'dashboard', label: 'Dashboard Control', icon: <BarChart2 size={16} /> },
-            { id: 'tracking', label: 'Live Tracking Map', icon: <Truck size={16} /> },
+            { id: 'tracking', label: 'Live Tracking Map', icon: <Navigation size={16} /> },
             { id: 'students', label: 'Students Console', icon: <Users size={16} /> },
             { id: 'drivers', label: 'Drivers Register', icon: <Users size={16} /> },
             { id: 'buses', label: 'Fleet Registry', icon: <Wrench size={16} /> },
-            { id: 'routes', label: 'Route Planners', icon: <Route size={16} /> },
+            { id: 'routes', label: 'Route Planners & Stops', icon: <RouteIcon size={16} /> },
             { id: 'broadcast', label: 'Alert Broadcasting', icon: <Bell size={16} /> }
           ].map(item => (
             <button 
@@ -509,7 +822,7 @@ export default function AdminDashboard({ token, onLogout }) {
       {/* Main Panel Content */}
       <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
         
-        {/* Active Emergency SOS Alerts Alert Banner (Appears at top if active) */}
+        {/* Active Emergency SOS Alerts Banner */}
         {activeSOS.length > 0 && (
           <div className="glass-card" style={{ background: 'rgba(244,63,94,0.15)', border: '1px solid var(--accent-rose)', color: '#fff', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -543,7 +856,7 @@ export default function AdminDashboard({ token, onLogout }) {
                 { label: 'Licensed Drivers', value: stats.totalDrivers, color: 'var(--accent-indigo)' },
                 { label: 'Active Transit Buses', value: stats.totalBuses, color: 'var(--accent-cyan)' },
                 { label: 'Delayed Shifts', value: stats.delayedRoutes, color: 'var(--accent-amber)' },
-                { label: 'Dues Pending', value: `$${stats.pendingFees}`, color: 'var(--accent-rose)' }
+                { label: 'Dues Pending', value: `₹${stats.pendingFees}`, color: 'var(--accent-rose)' }
               ].map((stat, i) => (
                 <div key={i} className="glass-card admin-card-stat" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{stat.label}</span>
@@ -652,15 +965,15 @@ export default function AdminDashboard({ token, onLogout }) {
         {/* MENU 2: LIVE TRACKING */}
         {activeMenu === 'tracking' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div className="glass-card" style={{ height: '450px', padding: '12px' }}>
+            <div className="glass-card" style={{ height: '480px', padding: '12px' }}>
               <MapContainer 
-                center={[13.0234, 77.5501]} 
+                center={[12.9716, 77.5946]} 
                 zoom={12} 
                 scrollWheelZoom={false}
               >
                 <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                  attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 />
                 
                 {liveTrips.map(trip => {
@@ -727,7 +1040,7 @@ export default function AdminDashboard({ token, onLogout }) {
         {activeMenu === 'students' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             
-            {/* Split layout: CRUD and Utilities */}
+            {/* Split layout: Form and Batch Utilities */}
             <div className="admin-grid">
               {/* Form creation */}
               <div className="glass-card" style={{ gridColumn: 'span 4' }}>
@@ -737,7 +1050,37 @@ export default function AdminDashboard({ token, onLogout }) {
                   <input type="email" className="input-field" placeholder="College Email (@college.edu)" value={studentForm.email} onChange={e => setStudentForm({...studentForm, email: e.target.value})} required />
                   <input type="text" className="input-field" placeholder="Roll Number (e.g. VESA-2024-ST99)" value={studentForm.rollNumber} onChange={e => setStudentForm({...studentForm, rollNumber: e.target.value})} required />
                   <input type="text" className="input-field" placeholder="Emergency Contact Phone" value={studentForm.emergencyContact} onChange={e => setStudentForm({...studentForm, emergencyContact: e.target.value})} required />
-                  <button type="submit" className="btn-primary">
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Assigned Bus</label>
+                      <select 
+                        className="input-field"
+                        value={studentForm.busId}
+                        onChange={e => setStudentForm({...studentForm, busId: parseInt(e.target.value)})}
+                        style={{ background: 'var(--bg-main)', marginTop: '4px' }}
+                      >
+                        {buses.map(b => (
+                          <option key={b.id} value={b.id}>{b.bus_number}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Assigned Route</label>
+                      <select 
+                        className="input-field"
+                        value={studentForm.routeId}
+                        onChange={e => setStudentForm({...studentForm, routeId: parseInt(e.target.value)})}
+                        style={{ background: 'var(--bg-main)', marginTop: '4px' }}
+                      >
+                        {routes.map(r => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="btn-primary" style={{ marginTop: '8px' }}>
                     <Plus size={16} /> Enroll Student
                   </button>
                 </form>
@@ -749,7 +1092,7 @@ export default function AdminDashboard({ token, onLogout }) {
                 <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Import Student Database (CSV)</h3>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Batch import students list using CSV files formatting.</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Batch import students list with auto-matching pickup stops.</span>
                   </div>
                   <button onClick={() => setIsCsvModalOpen(true)} className="btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Upload size={14} /> Open CSV Importer
@@ -759,13 +1102,13 @@ export default function AdminDashboard({ token, onLogout }) {
                 {/* QR Pass Verification Scanner */}
                 <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>QR Bus Pass Scanner Terminal</h3>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>Student QR Pass Verification Terminal</h3>
                     <button 
                       onClick={() => setIsScanning(!isScanning)} 
                       className="btn-primary" 
                       style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <Camera size={14} /> {isScanning ? 'Stop Camera' : 'Start Camera Scanner'}
+                      <Camera size={14} /> {isScanning ? 'Stop Camera' : 'Live Camera Scanner'}
                     </button>
                   </div>
 
@@ -778,8 +1121,8 @@ export default function AdminDashboard({ token, onLogout }) {
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <input 
                       type="text" 
-                      className="input-field"
-                      placeholder="Input scanned pass code (e.g. QR_PASS_ST01)..." 
+                      className="input-field" 
+                      placeholder="Input student pass code (e.g. QR_PASS_ST01)..." 
                       value={scannedPassCode}
                       onChange={e => setScannedPassCode(e.target.value)}
                     />
@@ -803,8 +1146,8 @@ export default function AdminDashboard({ token, onLogout }) {
             <div className="glass-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Student Database & Fee Approval Registry</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Total pending fee balance: <b>${stats.pendingFees || 0}</b>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  Total Pending Fees: <b style={{ color: 'var(--accent-amber)' }}>₹{stats.pendingFees || 0}</b>
                 </span>
               </div>
               <div className="table-responsive">
@@ -818,7 +1161,7 @@ export default function AdminDashboard({ token, onLogout }) {
                       <th>Pickup Stop</th>
                       <th>Fee Status</th>
                       <th>Pending Due</th>
-                      <th>Fee Approval & Actions</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -839,7 +1182,7 @@ export default function AdminDashboard({ token, onLogout }) {
                           </span>
                         </td>
                         <td style={{ fontWeight: '600', color: (s.pending_amount > 0 ? 'var(--accent-amber)' : 'var(--text-secondary)') }}>
-                          ${s.pending_amount !== undefined ? s.pending_amount : (s.fee_status === 'paid' ? 0 : 800)}
+                          ₹{s.pending_amount !== undefined ? s.pending_amount : (s.fee_status === 'paid' ? 0 : 800)}
                         </td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -847,15 +1190,26 @@ export default function AdminDashboard({ token, onLogout }) {
                               onClick={() => {
                                 setFeeModalStudent(s);
                                 setFeeAmount(s.pending_amount ? String(s.pending_amount) : '800');
-                                setFeeStatus(s.pending_amount === 0 ? 'paid' : 'paid');
+                                setFeeStatus('paid');
                               }} 
                               className="btn-primary" 
                               style={{ padding: '4px 10px', fontSize: '11px', width: 'auto' }}
                               title="Manual Admin Fee Approval"
                             >
-                              Approve / Update Fee
+                              Fee Approval
                             </button>
-                            <button onClick={() => handleDeleteStudent(s.user_id)} style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}>
+                            <button 
+                              onClick={() => setStudentEditModal({ isOpen: true, data: { ...s } })} 
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
+                              title="Edit Student Profile"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteStudent(s.user_id)} 
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
+                              title="Delete Student"
+                            >
                               <Trash2 size={16} />
                             </button>
                           </div>
@@ -866,6 +1220,103 @@ export default function AdminDashboard({ token, onLogout }) {
                 </table>
               </div>
             </div>
+
+            {/* Student Edit Modal Overlay */}
+            {studentEditModal.isOpen && studentEditModal.data && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '500px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Edit Student Details</h3>
+                    <button onClick={() => setStudentEditModal({ isOpen: false, data: null })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Full Name</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        value={studentEditModal.data.name || ''} 
+                        onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, name: e.target.value } })} 
+                        required 
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>College Email</label>
+                      <input 
+                        type="email" 
+                        className="input-field" 
+                        value={studentEditModal.data.email || ''} 
+                        onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, email: e.target.value } })} 
+                        required 
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Roll Number</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          value={studentEditModal.data.roll_number || ''} 
+                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, roll_number: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Emergency Contact Phone</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          value={studentEditModal.data.emergency_contact || ''} 
+                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, emergency_contact: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assigned Bus</label>
+                        <select 
+                          className="input-field"
+                          value={studentEditModal.data.bus_id || ''}
+                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, bus_id: e.target.value } })}
+                          style={{ background: 'var(--bg-main)' }}
+                        >
+                          <option value="">Unassigned</option>
+                          {buses.map(b => (
+                            <option key={b.id} value={b.id}>{b.bus_number}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assigned Route</label>
+                        <select 
+                          className="input-field"
+                          value={studentEditModal.data.route_id || ''}
+                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, route_id: e.target.value } })}
+                          style={{ background: 'var(--bg-main)' }}
+                        >
+                          <option value="">Unassigned</option>
+                          {routes.map(r => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
+                      <button type="submit" className="btn-primary">Save Changes</button>
+                      <button type="button" onClick={() => setStudentEditModal({ isOpen: false, data: null })} className="btn-secondary">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
 
             {/* Fee Approval Modal Overlay */}
             {feeModalStudent && (
@@ -894,7 +1345,7 @@ export default function AdminDashboard({ token, onLogout }) {
                     </div>
 
                     <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Amount to Credit ($)</label>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Amount to Credit (₹)</label>
                       <input 
                         type="number"
                         step="0.01"
@@ -915,6 +1366,7 @@ export default function AdminDashboard({ token, onLogout }) {
                         style={{ background: 'var(--bg-main)' }}
                       >
                         <option value="Campus Cashier Counter">Campus Cashier Counter</option>
+                        <option value="UPI / QR Payment">UPI / QR Payment</option>
                         <option value="Bank Direct Deposit / NEFT">Bank Direct Deposit / NEFT</option>
                         <option value="Official College Cheque">Official College Cheque</option>
                         <option value="Admin Scholarship / Fee Waiver">Admin Scholarship / Fee Waiver</option>
@@ -946,7 +1398,7 @@ export default function AdminDashboard({ token, onLogout }) {
             {/* CSV Import Modal Overlay */}
             {isCsvModalOpen && (
               <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '560px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
+                <div className="glass-card" style={{ width: '580px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
                   <h3 style={{ fontSize: '18px', fontWeight: '700' }}>CSV Database Importer</h3>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                     Input comma-separated values (One student per line):<br/>
@@ -955,7 +1407,7 @@ export default function AdminDashboard({ token, onLogout }) {
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Default Fee Amount ($)</label>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Default Fee Amount (₹)</label>
                       <input 
                         type="number" 
                         className="input-field" 
@@ -985,7 +1437,7 @@ export default function AdminDashboard({ token, onLogout }) {
                       rows="6"
                       value={csvText}
                       onChange={e => setCsvText(e.target.value)}
-                      placeholder="Alex Mercer, alex@college.edu, VESA-2024-ST01, +1 555-0101, Malleswaram 8th Cross, Password123&#10;Sophia Sterling, sophia@college.edu, VESA-2024-ST02, +1 555-0102, Majestic Hub, SecurePass456"
+                      placeholder="Alex Mercer, alex@college.edu, VESA-2024-ST01, +91 9876543210, Malleswaram 8th Cross, Password123&#10;Sophia Sterling, sophia@college.edu, VESA-2024-ST02, +91 9876543211, Majestic Hub, SecurePass456"
                       style={{ resize: 'none', fontFamily: 'monospace', fontSize: '12px' }}
                     ></textarea>
                   </div>
@@ -1002,120 +1454,423 @@ export default function AdminDashboard({ token, onLogout }) {
 
         {/* MENU 4: DRIVERS REGISTER */}
         {activeMenu === 'drivers' && (
-          <div className="glass-card">
-            <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Driver Employment Register</h3>
-            <div className="table-responsive">
-              <table className="premium-table">
-                <thead>
-                  <tr>
-                    <th>Driver Name</th>
-                    <th>Email Address</th>
-                    <th>Phone Line</th>
-                    <th>License Number</th>
-                    <th>Bus Assigned</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {drivers.map(d => (
-                    <tr key={d.user_id}>
-                      <td style={{ fontWeight: '700' }}>{d.name}</td>
-                      <td>{d.email}</td>
-                      <td>{d.phone}</td>
-                      <td>{d.license_number}</td>
-                      <td>{d.bus_number || 'Unassigned'}</td>
-                      <td>
-                        <span style={{
-                          padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                          background: d.status === 'on_trip' ? 'rgba(6,182,212,0.1)' : d.status === 'active' ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.05)',
-                          color: d.status === 'on_trip' ? 'var(--accent-cyan)' : d.status === 'active' ? 'var(--accent-emerald)' : 'var(--text-secondary)'
-                        }}>
-                          {d.status === 'on_trip' ? 'On Road' : d.status === 'active' ? 'Duty Ready' : 'Off duty'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Driver Employment Register</h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Manage transit drivers, credentials, phone lines, and bus assignments.</span>
+              </div>
+              <button 
+                onClick={() => setDriverModal({
+                  isOpen: true,
+                  mode: 'add',
+                  data: { name: '', email: '', phone: '', licenseNumber: '', activeBusId: '', initialPassword: '' }
+                })}
+                className="btn-primary" 
+                style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Plus size={16} /> Add New Driver
+              </button>
             </div>
+
+            <div className="glass-card">
+              <div className="table-responsive">
+                <table className="premium-table">
+                  <thead>
+                    <tr>
+                      <th>Driver Name</th>
+                      <th>Email Address</th>
+                      <th>Phone Line</th>
+                      <th>License Number</th>
+                      <th>Bus Assigned</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drivers.map(d => (
+                      <tr key={d.user_id}>
+                        <td style={{ fontWeight: '700' }}>{d.name}</td>
+                        <td>{d.email}</td>
+                        <td>{d.phone}</td>
+                        <td>{d.license_number}</td>
+                        <td>{d.bus_number || 'Unassigned'}</td>
+                        <td>
+                          <span style={{
+                            padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
+                            background: d.status === 'on_trip' ? 'rgba(6,182,212,0.1)' : d.status === 'active' ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.05)',
+                            color: d.status === 'on_trip' ? 'var(--accent-cyan)' : d.status === 'active' ? 'var(--accent-emerald)' : 'var(--text-secondary)'
+                          }}>
+                            {d.status === 'on_trip' ? 'On Road' : d.status === 'active' ? 'Duty Ready' : 'Off duty'}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button 
+                              onClick={() => setDriverModal({
+                                isOpen: true,
+                                mode: 'edit',
+                                data: { user_id: d.user_id, name: d.name, email: d.email, phone: d.phone, licenseNumber: d.license_number, activeBusId: d.active_bus_id || '' }
+                              })}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
+                              title="Edit Driver"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteDriver(d.user_id)}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
+                              title="Delete Driver"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Add / Edit Driver Modal */}
+            {driverModal.isOpen && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
+                      {driverModal.mode === 'add' ? 'Add New Transit Driver' : 'Edit Driver Details'}
+                    </h3>
+                    <button onClick={() => setDriverModal({ ...driverModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveDriver} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Driver Full Name</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        placeholder="e.g. Ramesh Kumar"
+                        value={driverModal.data.name} 
+                        onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, name: e.target.value } })} 
+                        required 
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Email Address</label>
+                      <input 
+                        type="email" 
+                        className="input-field" 
+                        placeholder="driver@college.edu"
+                        value={driverModal.data.email} 
+                        onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, email: e.target.value } })} 
+                        required 
+                      />
+                    </div>
+
+                    {driverModal.mode === 'add' && (
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Initial Login Password</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="Leave blank to auto-generate or set password"
+                          value={driverModal.data.initialPassword || ''} 
+                          onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, initialPassword: e.target.value } })} 
+                        />
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Phone Number</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="+91 9876543210"
+                          value={driverModal.data.phone} 
+                          onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, phone: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Commercial License Number</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="KA-DL-2022-9901"
+                          value={driverModal.data.licenseNumber} 
+                          onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, licenseNumber: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assign Active Bus</label>
+                      <select 
+                        className="input-field"
+                        value={driverModal.data.activeBusId || ''}
+                        onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, activeBusId: e.target.value } })}
+                        style={{ background: 'var(--bg-main)' }}
+                      >
+                        <option value="">None / Floating Driver</option>
+                        {buses.map(b => (
+                          <option key={b.id} value={b.id}>{b.bus_number} ({b.registration_number})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
+                      <button type="submit" className="btn-primary">
+                        {driverModal.mode === 'add' ? 'Create Driver Account' : 'Save Changes'}
+                      </button>
+                      <button type="button" onClick={() => setDriverModal({ ...driverModal, isOpen: false })} className="btn-secondary">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {/* MENU 5: FLEET REGISTER */}
         {activeMenu === 'buses' && (
-          <div className="glass-card">
-            <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Active Transit Fleet Registry</h3>
-            <div className="table-responsive">
-              <table className="premium-table">
-                <thead>
-                  <tr>
-                    <th>Bus Unit</th>
-                    <th>Registration Plate</th>
-                    <th>Capacity</th>
-                    <th>Mileage (Odometer)</th>
-                    <th>Insurance Renewal</th>
-                    <th>Operational Status</th>
-                    <th>Bus QR Sticker</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {buses.map(b => (
-                    <tr key={b.id}>
-                      <td style={{ fontWeight: '700' }}>{b.bus_number}</td>
-                      <td>{b.registration_number}</td>
-                      <td>{b.capacity} seats</td>
-                      <td>{b.total_mileage} km</td>
-                      <td>{b.insurance_expiry}</td>
-                      <td>
-                        <span style={{
-                          padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                          background: b.status === 'active' ? 'rgba(16,185,129,0.1)' : b.status === 'maintenance' ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.05)',
-                          color: b.status === 'active' ? 'var(--accent-emerald)' : b.status === 'maintenance' ? 'var(--accent-amber)' : 'var(--text-secondary)'
-                        }}>
-                          {b.status}
-                        </span>
-                      </td>
-                      <td>
-                        <button 
-                          onClick={() => setSelectedBusForSticker(b)}
-                          className="btn-secondary"
-                          style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        >
-                          <QrCode size={12} /> View Sticker
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Active Transit Fleet Registry</h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Manage bus units, seating capacities, vehicle insurance, and print QR stickers.</span>
+              </div>
+              <button 
+                onClick={() => setBusModal({
+                  isOpen: true,
+                  mode: 'add',
+                  data: { id: null, busNumber: '', registrationNumber: '', capacity: 45, totalMileage: 0, insuranceExpiry: new Date().toISOString().split('T')[0], status: 'active' }
+                })}
+                className="btn-primary" 
+                style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Plus size={16} /> Add New Bus
+              </button>
             </div>
 
-            {/* Bus QR Sticker Modal */}
+            <div className="glass-card">
+              <div className="table-responsive">
+                <table className="premium-table">
+                  <thead>
+                    <tr>
+                      <th>Bus Unit</th>
+                      <th>Registration Plate</th>
+                      <th>Capacity</th>
+                      <th>Mileage (Odometer)</th>
+                      <th>Insurance Renewal</th>
+                      <th>Status</th>
+                      <th>Bus Attendance QR</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {buses.map(b => (
+                      <tr key={b.id}>
+                        <td style={{ fontWeight: '700' }}>{b.bus_number}</td>
+                        <td>{b.registration_number}</td>
+                        <td>{b.capacity} seats</td>
+                        <td>{b.total_mileage} km</td>
+                        <td>{b.insurance_expiry}</td>
+                        <td>
+                          <span style={{
+                            padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
+                            background: b.status === 'active' ? 'rgba(16,185,129,0.1)' : b.status === 'maintenance' ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.05)',
+                            color: b.status === 'active' ? 'var(--accent-emerald)' : b.status === 'maintenance' ? 'var(--accent-amber)' : 'var(--text-secondary)'
+                          }}>
+                            {b.status}
+                          </span>
+                        </td>
+                        <td>
+                          <button 
+                            onClick={() => setSelectedBusForSticker(b)}
+                            className="btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          >
+                            <QrCode size={14} /> View QR Sticker
+                          </button>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button 
+                              onClick={() => setBusModal({
+                                isOpen: true,
+                                mode: 'edit',
+                                data: {
+                                  id: b.id,
+                                  busNumber: b.bus_number,
+                                  registrationNumber: b.registration_number,
+                                  capacity: b.capacity,
+                                  totalMileage: b.total_mileage,
+                                  insuranceExpiry: b.insurance_expiry,
+                                  status: b.status
+                                }
+                              })}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
+                              title="Edit Bus"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteBus(b.id)}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
+                              title="Delete Bus"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Add / Edit Bus Modal */}
+            {busModal.isOpen && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
+                      {busModal.mode === 'add' ? 'Register New Bus Unit' : 'Edit Bus Details'}
+                    </h3>
+                    <button onClick={() => setBusModal({ ...busModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveBus} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Bus Unit / Identifier</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="e.g. BUS-105"
+                          value={busModal.data.busNumber} 
+                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, busNumber: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Registration Plate</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="e.g. KA-01-EQ-9921"
+                          value={busModal.data.registrationNumber} 
+                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, registrationNumber: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Seating Capacity</label>
+                        <input 
+                          type="number" 
+                          className="input-field" 
+                          placeholder="45"
+                          value={busModal.data.capacity} 
+                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, capacity: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Mileage (km)</label>
+                        <input 
+                          type="number" 
+                          step="0.1"
+                          className="input-field" 
+                          placeholder="0"
+                          value={busModal.data.totalMileage} 
+                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, totalMileage: e.target.value } })} 
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Insurance Expiry Date</label>
+                        <input 
+                          type="date" 
+                          className="input-field" 
+                          value={busModal.data.insuranceExpiry} 
+                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, insuranceExpiry: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Operational Status</label>
+                        <select 
+                          className="input-field"
+                          value={busModal.data.status}
+                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, status: e.target.value } })}
+                          style={{ background: 'var(--bg-main)' }}
+                        >
+                          <option value="active">Active / Operational</option>
+                          <option value="maintenance">Under Maintenance</option>
+                          <option value="inactive">Inactive / Reserve</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
+                      <button type="submit" className="btn-primary">
+                        {busModal.mode === 'add' ? 'Register Bus' : 'Save Changes'}
+                      </button>
+                      <button type="button" onClick={() => setBusModal({ ...busModal, isOpen: false })} className="btn-secondary">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Bus QR Attendance Sticker Modal */}
             {selectedBusForSticker && (
               <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '380px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center', padding: '24px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--accent-cyan)' }}>
-                    In-Bus Physical QR Sticker
-                  </span>
-                  <div style={{ background: '#fff', padding: '16px', borderRadius: '12px' }}>
+                <div className="glass-card" style={{ width: '400px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center', padding: '28px', border: '2px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)' }}>
+                    <Truck size={20} />
+                    <span style={{ fontSize: '13px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                      VESA Transit Bus Scanner Sticker
+                    </span>
+                  </div>
+                  
+                  <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
                     <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=VESA_BUS_${selectedBusForSticker.bus_number}`} 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=VESA_BUS_${selectedBusForSticker.bus_number}`} 
                       alt={`Bus ${selectedBusForSticker.bus_number} QR Code`} 
-                      style={{ width: '200px', height: '200px', display: 'block' }}
+                      style={{ width: '220px', height: '220px', display: 'block' }}
                     />
                   </div>
+
                   <div>
-                    <h3 style={{ fontSize: '20px', fontWeight: '800', margin: 0 }}>Bus #{selectedBusForSticker.bus_number}</h3>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Code: VESA_BUS_{selectedBusForSticker.bus_number}</span>
+                    <h2 style={{ fontSize: '24px', fontWeight: '800', margin: '0 0 4px 0', color: '#fff' }}>Bus {selectedBusForSticker.bus_number}</h2>
+                    <span style={{ fontSize: '13px', color: 'var(--accent-amber)', fontWeight: '700' }}>QR Code: VESA_BUS_{selectedBusForSticker.bus_number}</span>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Reg: {selectedBusForSticker.registration_number}</div>
                   </div>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-                    Stick this QR code at the bus entrance. Boarding students scan this with their Student App camera to record digital attendance.
+
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+                    Stick this physical QR code badge at the bus entrance door. Students scan this with their live camera on boarding to mark instant digital attendance.
                   </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', width: '100%' }}>
-                    <button onClick={() => window.print()} className="btn-secondary" style={{ padding: '8px', fontSize: '12px' }}>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', width: '100%', marginTop: '8px' }}>
+                    <button onClick={() => window.print()} className="btn-secondary" style={{ padding: '10px', fontSize: '13px', fontWeight: '600' }}>
                       Print Sticker
                     </button>
-                    <button onClick={() => setSelectedBusForSticker(null)} className="btn-primary" style={{ padding: '8px', fontSize: '12px' }}>
+                    <button onClick={() => setSelectedBusForSticker(null)} className="btn-primary" style={{ padding: '10px', fontSize: '13px', fontWeight: '600' }}>
                       Close
                     </button>
                   </div>
@@ -1125,36 +1880,358 @@ export default function AdminDashboard({ token, onLogout }) {
           </div>
         )}
 
-        {/* MENU 6: ROUTES */}
+        {/* MENU 6: ROUTES & STOPS */}
         {activeMenu === 'routes' && (
-          <div className="glass-card">
-            <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Active Transit Route Planners</h3>
-            <div className="table-responsive">
-              <table className="premium-table">
-                <thead>
-                  <tr>
-                    <th>Route Title</th>
-                    <th>Hub Departure</th>
-                    <th>Campus Arrival</th>
-                    <th>Distance (km)</th>
-                    <th>Est Duration</th>
-                    <th>Pickups stops</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {routes.map(r => (
-                    <tr key={r.id}>
-                      <td style={{ fontWeight: '700' }}>{r.name}</td>
-                      <td>{r.start_location}</td>
-                      <td>{r.end_location}</td>
-                      <td>{r.distance_km} km</td>
-                      <td>{r.estimated_duration_mins} mins</td>
-                      <td>{r.stops_count} boarding stops</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Active Transit Route Planners & Stops</h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Create and edit transit routes, configure pickup stops, coordinates, and schedules.</span>
+              </div>
+              <button 
+                onClick={() => setRouteModal({
+                  isOpen: true,
+                  mode: 'add',
+                  data: { id: null, name: '', startLocation: '', endLocation: '', distanceKm: 15, estimatedDurationMins: 45 }
+                })}
+                className="btn-primary" 
+                style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Plus size={16} /> Add New Route
+              </button>
             </div>
+
+            <div className="glass-card">
+              <div className="table-responsive">
+                <table className="premium-table">
+                  <thead>
+                    <tr>
+                      <th>Route Title</th>
+                      <th>Hub Departure</th>
+                      <th>Campus Arrival</th>
+                      <th>Distance (km)</th>
+                      <th>Est Duration</th>
+                      <th>Pickups Stops</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {routes.map(r => (
+                      <tr key={r.id}>
+                        <td style={{ fontWeight: '700' }}>{r.name}</td>
+                        <td>{r.start_location}</td>
+                        <td>{r.end_location}</td>
+                        <td>{r.distance_km} km</td>
+                        <td>{r.estimated_duration_mins} mins</td>
+                        <td>
+                          <button 
+                            onClick={() => handleOpenManageStops(r)}
+                            className="btn-secondary"
+                            style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <MapPin size={12} color="var(--accent-cyan)" /> {r.stops_count || 0} Stops (Manage)
+                          </button>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button 
+                              onClick={() => setRouteModal({
+                                isOpen: true,
+                                mode: 'edit',
+                                data: {
+                                  id: r.id,
+                                  name: r.name,
+                                  startLocation: r.start_location,
+                                  endLocation: r.end_location,
+                                  distanceKm: r.distance_km,
+                                  estimatedDurationMins: r.estimated_duration_mins
+                                }
+                              })}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
+                              title="Edit Route"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteRoute(r.id)}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
+                              title="Delete Route"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Add / Edit Route Modal */}
+            {routeModal.isOpen && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
+                      {routeModal.mode === 'add' ? 'Create Transit Route' : 'Edit Route Details'}
+                    </h3>
+                    <button onClick={() => setRouteModal({ ...routeModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveRoute} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Route Name / Title</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        placeholder="e.g. North Hub - Campus Express"
+                        value={routeModal.data.name} 
+                        onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, name: e.target.value } })} 
+                        required 
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Hub Departure (Start)</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="e.g. North Terminal"
+                          value={routeModal.data.startLocation} 
+                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, startLocation: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Campus Arrival (End)</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="e.g. Main Engineering Campus"
+                          value={routeModal.data.endLocation} 
+                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, endLocation: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Distance (km)</label>
+                        <input 
+                          type="number" 
+                          step="0.1"
+                          className="input-field" 
+                          placeholder="15.5"
+                          value={routeModal.data.distanceKm} 
+                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, distanceKm: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Estimated Duration (mins)</label>
+                        <input 
+                          type="number" 
+                          className="input-field" 
+                          placeholder="45"
+                          value={routeModal.data.estimatedDurationMins} 
+                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, estimatedDurationMins: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
+                      <button type="submit" className="btn-primary">
+                        {routeModal.mode === 'add' ? 'Create Route' : 'Save Changes'}
+                      </button>
+                      <button type="button" onClick={() => setRouteModal({ ...routeModal, isOpen: false })} className="btn-secondary">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Manage Stops Drawer / Modal */}
+            {stopsRoute && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '640px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '85vh', overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Manage Stops: {stopsRoute.name}</h3>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Configure pickup stop sequence, scheduled times, and GPS coordinates.</span>
+                    </div>
+                    <button onClick={() => setStopsRoute(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button 
+                      onClick={() => setStopModal({
+                        isOpen: true,
+                        mode: 'add',
+                        data: { id: null, name: '', latitude: 12.9716, longitude: 77.5946, sequenceOrder: stopsList.length + 1, scheduledTime: '07:30 AM' }
+                      })}
+                      className="btn-primary"
+                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Plus size={14} /> Add Pickup Stop
+                    </button>
+                  </div>
+
+                  <div className="table-responsive">
+                    <table className="premium-table">
+                      <thead>
+                        <tr>
+                          <th>Seq #</th>
+                          <th>Stop Name</th>
+                          <th>Scheduled Pickup</th>
+                          <th>Coordinates (Lat, Lng)</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stopsList.length === 0 ? (
+                          <tr>
+                            <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>No pickup stops created yet.</td>
+                          </tr>
+                        ) : (
+                          stopsList.map(stop => (
+                            <tr key={stop.id}>
+                              <td style={{ fontWeight: '700', color: 'var(--accent-cyan)' }}>#{stop.sequence_order}</td>
+                              <td style={{ fontWeight: '600' }}>{stop.name}</td>
+                              <td>{stop.scheduled_time}</td>
+                              <td style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{stop.latitude}, {stop.longitude}</td>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <button 
+                                    onClick={() => setStopModal({
+                                      isOpen: true,
+                                      mode: 'edit',
+                                      data: {
+                                        id: stop.id,
+                                        name: stop.name,
+                                        latitude: stop.latitude,
+                                        longitude: stop.longitude,
+                                        sequenceOrder: stop.sequence_order,
+                                        scheduledTime: stop.scheduled_time
+                                      }
+                                    })}
+                                    style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
+                                    title="Edit Stop"
+                                  >
+                                    <Edit size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteStop(stop.id)}
+                                    style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
+                                    title="Delete Stop"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                    <button onClick={() => setStopsRoute(null)} className="btn-secondary" style={{ width: 'auto' }}>Close</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Add / Edit Stop Modal */}
+            {stopModal.isOpen && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10001, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '420px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>
+                      {stopModal.mode === 'add' ? 'Add Pickup Stop' : 'Edit Pickup Stop'}
+                    </h3>
+                    <button onClick={() => setStopModal({ ...stopModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveStop} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Stop Name</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        placeholder="e.g. Navale Bridge / Malleswaram"
+                        value={stopModal.data.name} 
+                        onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, name: e.target.value } })} 
+                        required 
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Sequence Order</label>
+                        <input 
+                          type="number" 
+                          className="input-field" 
+                          placeholder="1"
+                          value={stopModal.data.sequenceOrder} 
+                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, sequenceOrder: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Scheduled Pickup Time</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          placeholder="07:30 AM"
+                          value={stopModal.data.scheduledTime} 
+                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, scheduledTime: e.target.value } })} 
+                          required 
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Latitude</label>
+                        <input 
+                          type="number" 
+                          step="0.0001"
+                          className="input-field" 
+                          value={stopModal.data.latitude} 
+                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, latitude: e.target.value } })} 
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Longitude</label>
+                        <input 
+                          type="number" 
+                          step="0.0001"
+                          className="input-field" 
+                          value={stopModal.data.longitude} 
+                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, longitude: e.target.value } })} 
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '6px' }}>
+                      <button type="submit" className="btn-primary">Save Stop</button>
+                      <button type="button" onClick={() => setStopModal({ ...stopModal, isOpen: false })} className="btn-secondary">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

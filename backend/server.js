@@ -1439,9 +1439,87 @@ app.post('/api/admin/routes', authenticateToken, requireRole('admin'), async (re
   }
 });
 
+app.put('/api/admin/routes/:id', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  const { name, startLocation, endLocation, distanceKm, estimatedDurationMins } = req.body;
+  const validationErr = validateRequired(req.body, ['name', 'startLocation', 'endLocation', 'distanceKm', 'estimatedDurationMins']);
+  if (validationErr) return res.status(400).json({ error: validationErr });
+
+  try {
+    await db.run(
+      'UPDATE routes SET name = $1, start_location = $2, end_location = $3, distance_km = $4, estimated_duration_mins = $5 WHERE id = $6',
+      [name.trim(), startLocation.trim(), endLocation.trim(), parseFloat(distanceKm), parseInt(estimatedDurationMins, 10), req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 app.delete('/api/admin/routes/:id', authenticateToken, requireRole('admin'), async (req, res, next) => {
   try {
     await db.run('DELETE FROM routes WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Manage Stops CRUD
+app.get('/api/admin/routes/:id/stops', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const stops = await db.query(
+      'SELECT * FROM stops WHERE route_id = $1 ORDER BY sequence_order ASC, id ASC',
+      [req.params.id]
+    );
+    res.json(stops);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/admin/stops', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  const { routeId, name, latitude, longitude, sequenceOrder, scheduledTime } = req.body;
+  const validationErr = validateRequired(req.body, ['routeId', 'name', 'scheduledTime']);
+  if (validationErr) return res.status(400).json({ error: validationErr });
+
+  try {
+    const lat = latitude ? parseFloat(latitude) : 12.9716;
+    const lng = longitude ? parseFloat(longitude) : 77.5946;
+    const seq = sequenceOrder ? parseInt(sequenceOrder, 10) : 1;
+
+    const resDb = await db.run(
+      'INSERT INTO stops (route_id, name, latitude, longitude, sequence_order, scheduled_time) VALUES ($1, $2, $3, $4, $5, $6)',
+      [parseInt(routeId, 10), name.trim(), lat, lng, seq, scheduledTime.trim()]
+    );
+    res.json({ success: true, id: resDb.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.put('/api/admin/stops/:id', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  const { name, latitude, longitude, sequenceOrder, scheduledTime } = req.body;
+  const validationErr = validateRequired(req.body, ['name', 'scheduledTime']);
+  if (validationErr) return res.status(400).json({ error: validationErr });
+
+  try {
+    const lat = latitude ? parseFloat(latitude) : 12.9716;
+    const lng = longitude ? parseFloat(longitude) : 77.5946;
+    const seq = sequenceOrder ? parseInt(sequenceOrder, 10) : 1;
+
+    await db.run(
+      'UPDATE stops SET name = $1, latitude = $2, longitude = $3, sequence_order = $4, scheduled_time = $5 WHERE id = $6',
+      [name.trim(), lat, lng, seq, scheduledTime.trim(), req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/admin/stops/:id', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    await db.run('DELETE FROM stops WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     next(err);

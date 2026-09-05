@@ -808,8 +808,8 @@ export default function DriverApp({ userId, token, onLogout }) {
               scrollWheelZoom={false}
             >
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               />
               <Marker position={busCoordinates} icon={activeStopIcon}>
                 <Popup>Bus {trip.bus_number}</Popup>

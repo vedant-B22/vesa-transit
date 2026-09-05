@@ -215,13 +215,18 @@ export default function StudentApp({ userId, token, onLogout }) {
     return isMorning || isEvening;
   };
 
-  // Camera scanner effect for Student scanning Bus QR sticker
+  // Camera scanner effect for Student scanning Bus QR sticker (Strict live camera feed only)
   useEffect(() => {
     if (isCameraActive) {
-      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
+      import('html5-qrcode').then(({ Html5QrcodeScanner, Html5QrcodeScanType }) => {
         const scanner = new Html5QrcodeScanner(
           "student-bus-qr-reader",
-          { fps: 10, qrbox: { width: 220, height: 220 } },
+          { 
+            fps: 10, 
+            qrbox: { width: 220, height: 220 },
+            supportedScanTypes: [Html5QrcodeScanType ? Html5QrcodeScanType.SCAN_TYPE_CAMERA : 0],
+            rememberLastUsedCamera: true
+          },
           false
         );
         scanner.render(
@@ -836,8 +841,8 @@ export default function StudentApp({ userId, token, onLogout }) {
                 scrollWheelZoom={false}
               >
                 <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                  attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 />
                 <Marker position={myStopCoords} icon={studentHomeIcon}>
                   <Popup>My Boarding Stop: {profile.stop_name}</Popup>
@@ -873,16 +878,16 @@ export default function StudentApp({ userId, token, onLogout }) {
             <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'linear-gradient(135deg, rgba(6,182,212,0.1) 0%, rgba(31,41,55,0.5) 100%)' }}>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Outstanding Balance</span>
               <h2 style={{ fontSize: '32px', fontWeight: '800', color: feeData.pending_amount > 0 ? 'var(--accent-amber)' : 'var(--accent-emerald)' }}>
-                ${feeData.pending_amount}
+                ₹{feeData.pending_amount}
               </h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '12px', fontSize: '12px' }}>
                 <div>
                   <span style={{ color: 'var(--text-muted)' }}>Total Term Fee</span>
-                  <div style={{ fontWeight: '700', marginTop: '2px' }}>${feeData.total_amount}</div>
+                  <div style={{ fontWeight: '700', marginTop: '2px' }}>₹{feeData.total_amount}</div>
                 </div>
                 <div>
                   <span style={{ color: 'var(--text-muted)' }}>Total Paid</span>
-                  <div style={{ fontWeight: '700', color: 'var(--accent-emerald)', marginTop: '2px' }}>${feeData.paid_amount}</div>
+                  <div style={{ fontWeight: '700', color: 'var(--accent-emerald)', marginTop: '2px' }}>₹{feeData.paid_amount}</div>
                 </div>
               </div>
             </div>
@@ -905,7 +910,7 @@ export default function StudentApp({ userId, token, onLogout }) {
                   {payments.map(p => (
                     <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
                       <div>
-                        <div style={{ fontSize: '12px', fontWeight: '600' }}>Amount: ${p.amount}</div>
+                        <div style={{ fontSize: '12px', fontWeight: '600' }}>Amount: ₹{p.amount}</div>
                         <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>TXN ID: {p.transaction_id}</span>
                       </div>
                       <button onClick={() => mockDownloadReceipt(p.transaction_id)} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
@@ -955,70 +960,34 @@ export default function StudentApp({ userId, token, onLogout }) {
               {!isWithinScanWindow() ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '16px 8px', textAlign: 'center' }}>
                   <Lock size={32} color="var(--accent-rose)" />
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Bus attendance scanning is currently locked outside scheduled trip hours.
+                  <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--accent-rose)' }}>
+                    Scanner Locked Outside Trip Hours
                   </div>
-                  <button 
-                    onClick={() => setDemoBypassTime(true)}
-                    style={{
-                      background: 'rgba(99,102,241,0.15)',
-                      border: '1px solid var(--accent-indigo)',
-                      color: 'var(--accent-indigo)',
-                      padding: '6px 14px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <Sparkles size={12} /> Enable Demo Mode (Bypass Restriction)
-                  </button>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    Bus attendance scanning is only available during scheduled morning (07:00–09:30 AM) and evening (04:30–07:00 PM) transit hours.
+                  </div>
                 </div>
               ) : (
                 <>
-                  {demoBypassTime && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(99,102,241,0.1)', padding: '6px 10px', borderRadius: '6px', fontSize: '10px', color: 'var(--accent-indigo)' }}>
-                      <span>⚡ Demo Mode Active (Time window bypassed)</span>
-                      <button onClick={() => setDemoBypassTime(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '10px' }}>Re-lock</button>
-                    </div>
-                  )}
-
                   {/* Camera Scanner Stream View */}
                   {isCameraActive && (
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', padding: '10px', background: '#000', overflow: 'hidden' }}>
+                    <div style={{ border: '2px solid var(--accent-cyan)', borderRadius: '12px', padding: '10px', background: '#000', overflow: 'hidden' }}>
                       <div id="student-bus-qr-reader" style={{ width: '100%' }}></div>
                     </div>
                   )}
 
-                  {/* Camera Trigger & Quick Check-in */}
+                  {/* Camera Trigger */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <button 
                       onClick={() => setIsCameraActive(!isCameraActive)} 
                       className="btn-primary"
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px' }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px', fontSize: '13px' }}
                     >
-                      <Camera size={16} /> {isCameraActive ? 'Close Camera Scanner' : 'Scan Bus QR Code Sticker'}
+                      <Camera size={18} /> {isCameraActive ? 'Close Camera Scanner' : 'Open Camera to Scan Bus QR Sticker'}
                     </button>
-
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                      <button 
-                        onClick={() => handleScanBusQR(`VESA_BUS_${profile.bus_number || '101'}`)}
-                        className="btn-secondary"
-                        style={{ flex: 1, fontSize: '11px', padding: '6px' }}
-                      >
-                        ⚡ Fast Check-in Bus {profile.bus_number || '101'}
-                      </button>
-                      <button 
-                        onClick={() => handleScanBusQR('VESA_BUS_102')}
-                        className="btn-secondary"
-                        style={{ flex: 1, fontSize: '11px', padding: '6px' }}
-                      >
-                        ⚡ Fast Check-in Bus 102
-                      </button>
-                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                      Point your camera at the official QR code sticker posted at the bus entrance.
+                    </span>
                   </div>
 
                   {/* Attendance Success Boarding Pass Ticket */}
