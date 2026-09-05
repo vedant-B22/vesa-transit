@@ -47,27 +47,21 @@ export const get = async (sql, params = []) => {
 };
 
 export const run = async (sql, params = []) => {
-  // If INSERT statement doesn't have RETURNING id, automatically append it if possible to capture id
   let modifiedSql = sql;
-  const isInsert = /^\s*INSERT\s+INTO/i.test(sql);
+  const insertMatch = sql.match(/^\s*INSERT\s+INTO\s+([a-zA-Z0-9_]+)/i);
   const hasReturning = /RETURNING\s+/i.test(sql);
+  const tablesWithoutId = new Set(['students', 'drivers', 'admins', 'settings']);
   
-  if (isInsert && !hasReturning) {
-    modifiedSql = `${sql} RETURNING id`;
+  if (insertMatch && !hasReturning) {
+    const table = insertMatch[1].toLowerCase();
+    if (!tablesWithoutId.has(table)) {
+      modifiedSql = `${sql} RETURNING id`;
+    }
   }
 
-  try {
-    const res = await pool.query(modifiedSql, params);
-    const id = res.rows?.[0]?.id !== undefined ? res.rows[0].id : null;
-    return { id, changes: res.rowCount };
-  } catch (err) {
-    // If appending RETURNING id failed (e.g. table has no 'id' column or composite key), fallback to original sql
-    if (isInsert && !hasReturning && err.message?.includes('column "id" does not exist')) {
-      const fallbackRes = await pool.query(sql, params);
-      return { id: null, changes: fallbackRes.rowCount };
-    }
-    throw err;
-  }
+  const res = await pool.query(modifiedSql, params);
+  const id = res.rows?.[0]?.id !== undefined ? res.rows[0].id : (res.rows?.[0]?.user_id !== undefined ? res.rows[0].user_id : null);
+  return { id, changes: res.rowCount };
 };
 
 export const exec = async (sql) => {
@@ -92,22 +86,20 @@ export const withTransaction = async (callback) => {
       },
       run: async (sql, params = []) => {
         let modifiedSql = sql;
-        const isInsert = /^\s*INSERT\s+INTO/i.test(sql);
+        const insertMatch = sql.match(/^\s*INSERT\s+INTO\s+([a-zA-Z0-9_]+)/i);
         const hasReturning = /RETURNING\s+/i.test(sql);
-        if (isInsert && !hasReturning) {
-          modifiedSql = `${sql} RETURNING id`;
-        }
-        try {
-          const res = await client.query(modifiedSql, params);
-          const id = res.rows?.[0]?.id !== undefined ? res.rows[0].id : null;
-          return { id, changes: res.rowCount };
-        } catch (err) {
-          if (isInsert && !hasReturning && err.message?.includes('column "id" does not exist')) {
-            const fallbackRes = await client.query(sql, params);
-            return { id: null, changes: fallbackRes.rowCount };
+        const tablesWithoutId = new Set(['students', 'drivers', 'admins', 'settings']);
+        
+        if (insertMatch && !hasReturning) {
+          const table = insertMatch[1].toLowerCase();
+          if (!tablesWithoutId.has(table)) {
+            modifiedSql = `${sql} RETURNING id`;
           }
-          throw err;
         }
+
+        const res = await client.query(modifiedSql, params);
+        const id = res.rows?.[0]?.id !== undefined ? res.rows[0].id : (res.rows?.[0]?.user_id !== undefined ? res.rows[0].user_id : null);
+        return { id, changes: res.rowCount };
       }
     };
 
@@ -125,19 +117,25 @@ export const withTransaction = async (callback) => {
 // Initialize schema and seed data
 export const initDatabase = async () => {
   try {
-    // 1. Run schema DDL
+    // 1. Run schema DDL (Always ensures tables exist in PostgreSQL)
     const schemaSql = fs.readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
     await pool.query(schemaSql);
     console.log('PostgreSQL database schema initialized.');
 
-    // 2. Check if database is already seeded
+    // 2. Guard demo seeding with SEED_DEMO_DATA flag
+    if (process.env.SEED_DEMO_DATA !== 'true') {
+      console.log('Demo data seeding disabled (SEED_DEMO_DATA is not set to true). Production mode active.');
+      return;
+    }
+
+    // 3. Check if database is already seeded
     const usersCount = await get('SELECT COUNT(*) as count FROM users');
     if (parseInt(usersCount?.count || '0', 10) > 0) {
       console.log('Database already has data. Skipping seed.');
       return;
     }
 
-    console.log('Seeding initial data into PostgreSQL...');
+    console.log('SEED_DEMO_DATA=true: Seeding initial demo data into PostgreSQL...');
 
     await withTransaction(async (tx) => {
       // 3. Seed Users with bcrypt hashed passwords
@@ -159,7 +157,7 @@ export const initDatabase = async () => {
           [u.id, u.email, defaultPasswordHash, u.role]
         );
       }
-      await tx.query("SELECT setval(pg_get_serial_sequence('users', 'id'), coalesce(max(id), 1)) FROM users");
+      await tx.query("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT coalesce(max(id), 1) FROM users))");
 
       // 4. Seed Buses
       const seedBuses = [
@@ -174,7 +172,7 @@ export const initDatabase = async () => {
           [b.id, b.bus_number, b.capacity, b.registration_number, b.insurance_expiry, b.status, b.total_mileage]
         );
       }
-      await tx.query("SELECT setval(pg_get_serial_sequence('buses', 'id'), coalesce(max(id), 1)) FROM buses");
+      await tx.query("SELECT setval(pg_get_serial_sequence('buses', 'id'), (SELECT coalesce(max(id), 1) FROM buses))");
 
       // 5. Seed Routes
       const seedRoutes = [
@@ -188,7 +186,7 @@ export const initDatabase = async () => {
           [r.id, r.name, r.start_location, r.end_location, r.distance_km, r.estimated_duration_mins]
         );
       }
-      await tx.query("SELECT setval(pg_get_serial_sequence('routes', 'id'), coalesce(max(id), 1)) FROM routes");
+      await tx.query("SELECT setval(pg_get_serial_sequence('routes', 'id'), (SELECT coalesce(max(id), 1) FROM routes))");
 
       // 6. Seed Stops
       const seedStops = [
@@ -211,7 +209,7 @@ export const initDatabase = async () => {
           [s.id, s.route_id, s.name, s.latitude, s.longitude, s.sequence_order, s.scheduled_time]
         );
       }
-      await tx.query("SELECT setval(pg_get_serial_sequence('stops', 'id'), coalesce(max(id), 1)) FROM stops");
+      await tx.query("SELECT setval(pg_get_serial_sequence('stops', 'id'), (SELECT coalesce(max(id), 1) FROM stops))");
 
       // 7. Seed Students
       const seedStudents = [
@@ -295,7 +293,15 @@ export const initDatabase = async () => {
 
     console.log('PostgreSQL database successfully seeded.');
   } catch (err) {
-    console.error('Error during PostgreSQL database initialization/seeding:', err.message);
+    console.error('Error during PostgreSQL database initialization/seeding:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      position: err.position,
+      table: err.table,
+      constraint: err.constraint,
+      stack: err.stack
+    });
   }
 };
 
