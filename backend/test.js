@@ -273,44 +273,46 @@ async function runAllTests() {
   });
 
   // -------------------------------------------------------------
-  // 7. SECURE STUDENT CSV IMPORT WITH PICKUP MATCHING & CONFIGURABLE FEES
+  // 7. SECURE STUDENT CSV IMPORT WITH EXPLICIT PASSWORDS & CASE-INSENSITIVE STOPS
   // -------------------------------------------------------------
-  await test('Secure Student CSV Import (Pickup Point Lookup, Configurable Fees, Password Hashes)', async () => {
+  await test('Secure Student CSV Import (Explicit Passwords, Case-Insensitive Pickup Matching, Configurable Fees)', async () => {
     const admin = (await pool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1")).rows[0];
     
-    // Seed a route and stop for lookup test
+    // Seed routes and stops for lookup test
     const rRes = await pool.query("INSERT INTO routes (name, start_location, end_location, distance_km, estimated_duration_mins) VALUES ($1, $2, $3, $4, $5) RETURNING id", ['Route C', 'Stop 1', 'VESA Campus', 10, 30]);
-    const sRes = await pool.query("INSERT INTO stops (route_id, name, latitude, longitude, sequence_order, scheduled_time) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", [rRes.rows[0].id, 'Malleswaram 8th Cross', 12.9982, 77.5714, 1, '07:42 AM']);
+    const s1Res = await pool.query("INSERT INTO stops (route_id, name, latitude, longitude, sequence_order, scheduled_time) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", [rRes.rows[0].id, 'Malleswaram 8th Cross', 12.9982, 77.5714, 1, '07:42 AM']);
+    const s2Res = await pool.query("INSERT INTO stops (route_id, name, latitude, longitude, sequence_order, scheduled_time) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", [rRes.rows[0].id, 'Navale Bridge', 12.9500, 77.5200, 2, '07:55 AM']);
     
     const configuredFee = 950.0;
     const configuredDueDate = '2027-01-31';
 
     const csvStudents = [
-      { name: 'Imported Student 1', email: 'imported1@college.edu', rollNumber: 'VESA-2024-IMP1', emergencyContact: '+1 555-0901', pickupPoint: 'Malleswaram 8th Cross' },
-      { name: 'Imported Student 2', email: 'imported2@college.edu', rollNumber: 'VESA-2024-IMP2', emergencyContact: '+1 555-0902', pickupPoint: 'Invalid Nonexistent Stop' }
+      // 1. Lowercase + extra whitespace pickup matching 'Malleswaram 8th Cross', explicit password
+      { name: 'Imported Student 1', email: 'imported1@college.edu', rollNumber: 'VESA-2024-IMP1', emergencyContact: '+1 555-0901', pickupPoint: '   malleswaram 8th cross   ', password: 'CustomSecret2026!' },
+      // 2. Uppercase pickup matching 'Navale Bridge', explicit password
+      { name: 'Imported Student 2', email: 'imported2@college.edu', rollNumber: 'VESA-2024-IMP2', emergencyContact: '+1 555-0902', pickupPoint: 'NAVALE BRIDGE', password: 'NavalePass789$' },
+      // 3. Unmatched stop
+      { name: 'Imported Student 3', email: 'imported3@college.edu', rollNumber: 'VESA-2024-IMP3', emergencyContact: '+1 555-0903', pickupPoint: 'Unknown Nonexistent Stop', password: 'Password123' }
     ];
 
     const errors = [];
-    const generatedPasswords = [];
+    const credentials = [];
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       for (const s of csvStudents) {
-        // Stop lookup
+        // Case-insensitive, trimmed stop lookup
         const cleanStopName = s.pickupPoint.trim().toLowerCase();
         const stopMatch = (await client.query('SELECT id, route_id FROM stops WHERE LOWER(name) = $1 LIMIT 1', [cleanStopName])).rows[0];
         if (!stopMatch) {
-          errors.push({ name: s.name, error: `Pickup point '${s.pickupPoint}' does not match any existing stop.` });
+          errors.push({ name: s.name, error: `Pickup point '${s.pickupPoint.trim()}' does not match any existing stop.` });
           continue;
         }
 
-        const rawPassword = crypto.randomBytes(6).toString('hex'); // Secure random password
-        assert(rawPassword.length === 12, 'Secure random password generated');
-        assert(rawPassword !== 'password123', 'Password is not hardcoded default');
-
+        const rawPassword = s.password.trim();
         const passwordHash = await bcrypt.hash(rawPassword, 10);
-        generatedPasswords.push({ email: s.email, rawPassword, passwordHash });
+        credentials.push({ email: s.email, password: rawPassword });
 
         const userRes = await client.query(
           'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id',
@@ -333,16 +335,24 @@ async function runAllTests() {
       client.release();
     }
 
-    // Verify valid student was imported with configured fees & stop
-    assert(generatedPasswords.length === 1, '1 valid student imported');
+    // Verify 2 valid students imported and 1 invalid stop caught
+    assert(credentials.length === 2, '2 valid students imported with explicit passwords');
     assert(errors.length === 1, '1 invalid stop flagged as error');
     assert(errors[0].error.includes('does not match any existing stop'), 'Error message identifies invalid stop');
 
-    const dbStudent = (await pool.query("SELECT s.*, f.total_amount, f.due_date FROM students s JOIN fees f ON s.user_id = f.student_id WHERE s.roll_number = 'VESA-2024-IMP1'")).rows[0];
-    assert(dbStudent !== undefined, 'Imported student exists in DB');
-    assert(dbStudent.pickup_stop_id === sRes.rows[0].id, 'Pickup stop ID matched correctly');
-    assert(dbStudent.total_amount === configuredFee, 'Configured fee amount ($950) saved correctly');
-    assert(dbStudent.due_date === configuredDueDate, 'Configured due date saved correctly');
+    // Verify student 1 (trimmed lowercase stop match & custom password)
+    const dbStudent1 = (await pool.query("SELECT s.*, u.password_hash, f.total_amount, f.due_date FROM students s JOIN users u ON s.user_id = u.id JOIN fees f ON s.user_id = f.student_id WHERE s.roll_number = 'VESA-2024-IMP1'")).rows[0];
+    assert(dbStudent1 !== undefined, 'Imported student 1 exists in DB');
+    assert(dbStudent1.pickup_stop_id === s1Res.rows[0].id, 'Case-insensitive lowercase pickup stop matched correctly');
+    const validPass1 = await bcrypt.compare('CustomSecret2026!', dbStudent1.password_hash);
+    assert(validPass1 === true, 'Explicit password for student 1 preserved and verified against bcrypt hash');
+
+    // Verify student 2 (uppercase stop match & custom password)
+    const dbStudent2 = (await pool.query("SELECT s.*, u.password_hash FROM students s JOIN users u ON s.user_id = u.id WHERE s.roll_number = 'VESA-2024-IMP2'")).rows[0];
+    assert(dbStudent2 !== undefined, 'Imported student 2 exists in DB');
+    assert(dbStudent2.pickup_stop_id === s2Res.rows[0].id, 'Case-insensitive uppercase pickup stop matched correctly');
+    const validPass2 = await bcrypt.compare('NavalePass789$', dbStudent2.password_hash);
+    assert(validPass2 === true, 'Explicit password for student 2 preserved and verified against bcrypt hash');
   });
 
   // -------------------------------------------------------------

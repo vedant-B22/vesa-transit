@@ -317,13 +317,14 @@ export default function AdminDashboard({ token, onLogout }) {
     for (const line of lines) {
       if (!line.trim()) continue;
       const parts = line.split(',');
-      if (parts.length >= 4) {
+      if (parts.length >= 5) {
         importList.push({
           name: parts[0]?.trim() || '',
           email: parts[1]?.trim() || '',
           rollNumber: parts[2]?.trim() || '',
           emergencyContact: parts[3]?.trim() || '',
-          pickupPoint: parts[4]?.trim() || ''
+          pickupPoint: parts[4]?.trim() || '',
+          password: parts[5]?.trim() || ''
         });
       }
     }
@@ -347,7 +348,7 @@ export default function AdminDashboard({ token, onLogout }) {
         fetchStudentList();
         setIsCsvModalOpen(false);
         setCsvText('');
-        let message = `Successfully imported ${data.count || 0} student(s) with secure passwords generated!`;
+        let message = `Successfully imported ${data.count || 0} student(s)!`;
         if (data.errors && data.errors.length > 0) {
           message += `\n\n${data.errors.length} row(s) had errors and were skipped:\n` +
             data.errors.map(err => `• ${err.name || err.email || 'Row'}: ${err.error}`).join('\n');
@@ -949,7 +950,7 @@ export default function AdminDashboard({ token, onLogout }) {
                   <h3 style={{ fontSize: '18px', fontWeight: '700' }}>CSV Database Importer</h3>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                     Input comma-separated values (One student per line):<br/>
-                    <b>Format: Full Name, Email, Roll Number, Emergency Phone, Pickup Point</b>
+                    <b>Format: Full Name, Email, Roll Number, Contact Number, Pickup Point, Password</b>
                   </span>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -984,7 +985,7 @@ export default function AdminDashboard({ token, onLogout }) {
                       rows="6"
                       value={csvText}
                       onChange={e => setCsvText(e.target.value)}
-                      placeholder="Alex Mercer, alex@college.edu, VESA-2024-ST01, +1 555-0101, Malleswaram 8th Cross&#10;Sophia Sterling, sophia@college.edu, VESA-2024-ST02, +1 555-0102, Majestic Hub"
+                      placeholder="Alex Mercer, alex@college.edu, VESA-2024-ST01, +1 555-0101, Malleswaram 8th Cross, Password123&#10;Sophia Sterling, sophia@college.edu, VESA-2024-ST02, +1 555-0102, Majestic Hub, SecurePass456"
                       style={{ resize: 'none', fontFamily: 'monospace', fontSize: '12px' }}
                     ></textarea>
                   </div>

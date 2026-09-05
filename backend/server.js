@@ -1140,19 +1140,19 @@ app.post('/api/admin/students/import-csv', authenticateToken, requireRole('admin
         const s = students[i];
         if (!s || typeof s !== 'object') continue;
 
-        if (!s.email || !s.name || !s.rollNumber) {
+        if (!s.email || !s.name || !s.rollNumber || !s.password || !s.password.trim()) {
           errors.push({
             row: i + 1,
             name: s.name || 'Unknown',
             email: s.email || 'Unknown',
-            error: 'Missing required fields (Name, Email, or Roll Number).'
+            error: 'Missing required fields (Full Name, Email, Roll Number, and Password are required).'
           });
           continue;
         }
 
         const cleanEmail = s.email.trim().toLowerCase();
 
-        // 1. Resolve Pickup Stop, Route, and Bus
+        // 1. Resolve Pickup Stop, Route, and Bus (case-insensitive, trimmed)
         let pickupStopId = null;
         let routeId = null;
         let busId = null;
@@ -1224,9 +1224,9 @@ app.post('/api/admin/students/import-csv', authenticateToken, requireRole('admin
           continue;
         }
 
-        // 3. Generate secure random password and insert user
-        const randomPassword = crypto.randomBytes(6).toString('hex');
-        const passwordHash = await bcrypt.hash(randomPassword, 10);
+        // 3. Use provided CSV password (hashed with bcrypt) and insert user
+        const rawPassword = s.password.trim();
+        const passwordHash = await bcrypt.hash(rawPassword, 10);
         const qrPass = 'QR_PASS_' + s.rollNumber.trim().toUpperCase();
 
         const userRes = await tx.run(
@@ -1256,7 +1256,11 @@ app.post('/api/admin/students/import-csv', authenticateToken, requireRole('admin
         );
 
         importedCount++;
-        generatedCredentials.push({ email: cleanEmail, temporaryPassword: randomPassword });
+        generatedCredentials.push({
+          email: cleanEmail,
+          password: rawPassword,
+          temporaryPassword: rawPassword
+        });
       }
     });
 
