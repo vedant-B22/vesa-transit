@@ -46,7 +46,7 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(null, true); // Fallback for embedded / preview environments
+      return callback(new Error('Not allowed by CORS'));
     },
     credentials: true
   })

@@ -3,7 +3,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'vesa_transit_default_secret_key_change_in_prod';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is missing. Server cannot start without a secure secret key.');
+}
 
 /**
  * Sign JWT token for authenticated users

@@ -345,6 +345,59 @@ async function runAllTests() {
     assert(userCheck.length === 0, 'Zero orphan rows left behind after transaction rollback');
   });
 
+  // -------------------------------------------------------------
+  // 9. CORS ALLOWLIST REJECTION
+  // -------------------------------------------------------------
+  await test('CORS Allowlist Security (Rejects Disallowed Origins)', async () => {
+    const allowedOrigins = ['http://localhost:5173', 'https://vesa-transit.onrender.com'];
+    
+    function corsCheck(origin) {
+      return new Promise((resolve, reject) => {
+        const callback = (err, allow) => {
+          if (err) return reject(err);
+          resolve(allow);
+        };
+        if (!origin || allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+      });
+    }
+
+    const allowLocal = await corsCheck('http://localhost:5173');
+    assert(allowLocal === true, 'Allowed origin http://localhost:5173 passes');
+
+    let corsError = null;
+    try {
+      await corsCheck('https://malicious-attacker-site.com');
+    } catch (err) {
+      corsError = err;
+    }
+    assert(corsError !== null, 'Disallowed origin https://malicious-attacker-site.com is strictly rejected by CORS');
+  });
+
+  // -------------------------------------------------------------
+  // 10. JWT_SECRET MANDATORY STARTUP ENFORCEMENT
+  // -------------------------------------------------------------
+  await test('Mandatory JWT_SECRET Enforcement (No Insecure Default Fallback)', async () => {
+    function testSecretCheck(secret) {
+      if (!secret) {
+        throw new Error('FATAL: JWT_SECRET environment variable is missing. Server cannot start without a secure secret key.');
+      }
+      return true;
+    }
+
+    assert(testSecretCheck('valid_secret_key_12345') === true, 'Valid secret accepted');
+    
+    let fatalError = null;
+    try {
+      testSecretCheck(undefined);
+    } catch (err) {
+      fatalError = err;
+    }
+    assert(fatalError !== null && fatalError.message.includes('FATAL: JWT_SECRET environment variable is missing'), 'Missing JWT_SECRET throws fatal startup error');
+  });
+
   console.log('\n====================================================');
   console.log(`Test Results: ${passed} / ${total} Tests Passed Successfully (${Math.round((passed / total) * 100)}%)`);
   console.log('====================================================');
