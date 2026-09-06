@@ -7,6 +7,7 @@ import {
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import QRCodeImage from './LocalQRCode';
+import ThemeToggle from './ThemeToggle';
 
 const activeStopIcon = L.divIcon({
   className: 'driver-stop-marker',
@@ -36,7 +37,7 @@ const driverBusIcon = L.divIcon({
   iconSize: [28, 28]
 });
 
-export default function DriverApp({ userId, token, onLogout }) {
+export default function DriverApp({ userId, token, onLogout, theme, toggleTheme }) {
   const [trip, setTrip] = useState(null);
   const [stops, setStops] = useState([]);
   const [attendance, setAttendance] = useState([]);
@@ -512,7 +513,7 @@ export default function DriverApp({ userId, token, onLogout }) {
 
   if (!trip) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', alignItems: 'center', background: '#0a0e17', color: '#fff' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', alignItems: 'center', background: 'var(--bg-main)', color: 'var(--text-primary)' }}>
         <div className="pulse-badge">Synchronizing Driver Unit...</div>
       </div>
     );
@@ -620,12 +621,15 @@ export default function DriverApp({ userId, token, onLogout }) {
       {/* Driver Header */}
       <div className="emulator-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Navigation size={14} color="var(--accent-cyan)" />
-          <span style={{ fontSize: '13px', fontWeight: '700', fontFamily: 'var(--font-display)' }}>VESA driver console</span>
+          <Navigation size={15} color="var(--accent-cyan)" />
+          <span style={{ fontSize: '13px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>VESA Driver</span>
         </div>
-        <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-          Logout
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {toggleTheme && <ThemeToggle theme={theme} onToggle={toggleTheme} compact />}
+          <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>
+            Logout
+          </button>
+        </div>
       </div>
 
       {/* Content Area */}

@@ -8,6 +8,7 @@ import {
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import QRCodeImage from './LocalQRCode';
+import ThemeToggle from './ThemeToggle';
 
 const adminBusIcon = L.divIcon({
   className: 'admin-bus-marker',
@@ -31,7 +32,7 @@ const adminBusIcon = L.divIcon({
   iconSize: [30, 30]
 });
 
-export default function AdminDashboard({ token, onLogout }) {
+export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) {
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [stats, setStats] = useState({
     activeTrips: 0,
@@ -816,13 +817,20 @@ export default function AdminDashboard({ token, onLogout }) {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)', color: 'var(--text-primary)' }}>
       {/* Admin Sidebar Navigation */}
-      <div style={{ width: '260px', background: 'var(--bg-surface-solid)', borderRight: '1px solid var(--border-color)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
-        <div className="brand-title">
-          <Truck size={24} color="var(--accent-cyan)" />
-          <span>VESA Transit</span>
+      <div style={{ width: '270px', background: 'var(--bg-surface-solid)', borderRight: '1px solid var(--border-color)', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+        <div>
+          <div className="brand-title">
+            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'var(--accent-cyan-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(6,182,212,0.3)' }}>
+              <Truck size={20} color="var(--accent-cyan)" />
+            </div>
+            <span>VESA Transit</span>
+          </div>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', display: 'block', paddingLeft: '48px', fontWeight: '500' }}>
+            Operations & Fleet Control
+          </span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {[
             { id: 'dashboard', label: 'Dashboard Control', icon: <BarChart2 size={16} /> },
             { id: 'tracking', label: 'Live Tracking Map', icon: <Navigation size={16} /> },
@@ -832,26 +840,35 @@ export default function AdminDashboard({ token, onLogout }) {
             { id: 'buses', label: 'Fleet Registry', icon: <Wrench size={16} /> },
             { id: 'routes', label: 'Route Planners & Stops', icon: <RouteIcon size={16} /> },
             { id: 'broadcast', label: 'Alert Broadcasting', icon: <Bell size={16} /> }
-          ].map(item => (
-            <button 
-              key={item.id}
-              onClick={() => setActiveMenu(item.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px',
-                background: activeMenu === item.id ? 'rgba(6,182,212,0.1)' : 'transparent',
-                border: 'none', borderRadius: '8px', color: activeMenu === item.id ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-                fontSize: '14px', fontWeight: '600', cursor: 'pointer', textAlign: 'left',
-                transition: 'all 0.2s'
-              }}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
+          ].map(item => {
+            const isActive = activeMenu === item.id;
+            return (
+              <button 
+                key={item.id}
+                onClick={() => setActiveMenu(item.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '12px', padding: '11px 14px',
+                  background: isActive ? 'var(--accent-cyan-light)' : 'transparent',
+                  border: isActive ? '1px solid rgba(6,182,212,0.3)' : '1px solid transparent',
+                  borderRadius: '10px', 
+                  color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                  fontSize: '13.5px', fontWeight: isActive ? '700' : '500', 
+                  cursor: 'pointer', textAlign: 'left',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                }}
+              >
+                <div style={{ color: isActive ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
+                  {item.icon}
+                </div>
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <div style={{ marginTop: 'auto' }}>
-          <button onClick={onLogout} className="btn-secondary" style={{ width: '100%', borderColor: 'rgba(244,63,94,0.3)', color: 'var(--accent-rose)' }}>
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {toggleTheme && <ThemeToggle theme={theme} onToggle={toggleTheme} />}
+          <button onClick={onLogout} className="btn-secondary" style={{ width: '100%', borderColor: 'rgba(244,63,94,0.3)', color: 'var(--accent-rose)', fontSize: '13px' }}>
             Logout Admin
           </button>
         </div>
@@ -1106,7 +1123,7 @@ export default function AdminDashboard({ token, onLogout }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
               <div className="glass-card" style={{ padding: '16px 20px' }}>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Total Records Logged</span>
-                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: '#fff' }}>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--text-primary)' }}>
                   {attendanceList.length}
                 </div>
               </div>
@@ -1241,7 +1258,7 @@ export default function AdminDashboard({ token, onLogout }) {
                       attendanceList.map((record) => (
                         <tr key={record.attendance_id}>
                           <td>
-                            <div style={{ fontWeight: '700', color: '#fff' }}>{record.student_name}</div>
+                            <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{record.student_name}</div>
                             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>ID #{record.student_id}</span>
                           </td>
                           <td>

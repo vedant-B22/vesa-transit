@@ -7,6 +7,7 @@ import {
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import QRCodeImage from './LocalQRCode';
+import ThemeToggle from './ThemeToggle';
 
 // Leaflet custom styled marker icons using DivIcon for zero asset errors and a high-tech pulse look
 const createStopIcon = (num, isActive) => L.divIcon({
@@ -83,7 +84,7 @@ function RecenterMap({ coords }) {
   return null;
 }
 
-export default function StudentApp({ userId, token, onLogout }) {
+export default function StudentApp({ userId, token, onLogout, theme, toggleTheme }) {
   const [activeTab, setActiveTab] = useState('home');
   const [profile, setProfile] = useState(null);
   const [trip, setTrip] = useState(null);
@@ -585,7 +586,7 @@ export default function StudentApp({ userId, token, onLogout }) {
 
   if (!profile) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', alignItems: 'center', background: '#0a0e17', color: '#fff' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', alignItems: 'center', background: 'var(--bg-main)', color: 'var(--text-primary)' }}>
         <div className="pulse-badge">Connecting VESA Link...</div>
       </div>
     );
@@ -684,12 +685,15 @@ export default function StudentApp({ userId, token, onLogout }) {
       {/* Emulator UI Top header */}
       <div className="emulator-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isTripActive ? '#10b981' : '#6b7280' }}></div>
-          <span style={{ fontSize: '13px', fontWeight: '700', fontFamily: 'var(--font-display)' }}>VESA student</span>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isTripActive ? 'var(--accent-emerald)' : 'var(--text-muted)' }}></div>
+          <span style={{ fontSize: '13px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>VESA Student</span>
         </div>
-        <button onClick={handleSOS} style={{ background: '#dc2626', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
-          SOS
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {toggleTheme && <ThemeToggle theme={theme} onToggle={toggleTheme} compact />}
+          <button onClick={handleSOS} style={{ background: '#dc2626', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 2px 8px rgba(220,38,38,0.4)' }}>
+            SOS
+          </button>
+        </div>
       </div>
 
       {/* Main Emulator Content */}
