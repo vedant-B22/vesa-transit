@@ -245,11 +245,11 @@ export const initDatabase = async () => {
 
       // 10. Seed Fees & Payments
       const seedFees = [
-        { student_id: 1, total_amount: 800, paid_amount: 800, pending_amount: 0, due_date: '2026-08-15' },
-        { student_id: 2, total_amount: 800, paid_amount: 500, pending_amount: 300, due_date: '2026-08-15' },
-        { student_id: 3, total_amount: 800, paid_amount: 0, pending_amount: 800, due_date: '2026-08-15' },
-        { student_id: 4, total_amount: 950, paid_amount: 950, pending_amount: 0, due_date: '2026-08-15' },
-        { student_id: 5, total_amount: 950, paid_amount: 0, pending_amount: 950, due_date: '2026-08-15' }
+        { student_id: 1, total_amount: 5000, paid_amount: 5000, pending_amount: 0, due_date: '2026-08-15' },
+        { student_id: 2, total_amount: 5000, paid_amount: 3000, pending_amount: 2000, due_date: '2026-08-15' },
+        { student_id: 3, total_amount: 5000, paid_amount: 0, pending_amount: 5000, due_date: '2026-08-15' },
+        { student_id: 4, total_amount: 5500, paid_amount: 5500, pending_amount: 0, due_date: '2026-08-15' },
+        { student_id: 5, total_amount: 5500, paid_amount: 0, pending_amount: 5500, due_date: '2026-08-15' }
       ];
 
       for (const f of seedFees) {

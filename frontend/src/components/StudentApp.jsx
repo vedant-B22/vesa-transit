@@ -116,7 +116,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
     }
   };
 
-  // Proximity 5-minute Alarm State
+  // Proximity 10-minute Alarm State
   const [isAlarmRinging, setIsAlarmRinging] = useState(false);
   const [alarmModalOpen, setAlarmModalOpen] = useState(false);
   const [alarmDismissed, setAlarmDismissed] = useState(false);
@@ -124,7 +124,6 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   
   // Student Bus QR Camera Scanner State
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [demoBypassTime, setDemoBypassTime] = useState(false);
   const [attendanceSuccess, setAttendanceSuccess] = useState(null);
   const scannerRef = useRef(null);
 
@@ -138,45 +137,40 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   const [lfDesc, setLfDesc] = useState('');
   const [lfSuccess, setLfSuccess] = useState(false);
 
-  // Chatbot state
+  // AI Chat Assistant
   const [chatMessages, setChatMessages] = useState([
-    { sender: 'ai', text: "Hello! I am your VESA Transit AI assistant. Ask me questions like 'Where is my bus?' or 'Do I have any pending fees?'" }
+    { sender: 'ai', text: "Hello! I'm your transit AI copilot. How can I help with your bus timing or stop route today?" }
   ]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const chatBottomRef = useRef(null);
-
-  // WebSocket Ref
   const ws = useRef(null);
 
-  // Base API url (detect dev server environments vs served static hosts)
   const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
   const API_BASE = isDev ? 'http://localhost:5001/api' : '/api';
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
 
-  // Native Web Audio Synthesizer for 5-Min Alarm Bell
+  // Native Web Audio Synthesizer for 10-Min Alarm Bell
   const playAlarmTone = () => {
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const now = ctx.currentTime;
-      
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const playTone = (freq, start, duration) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, start);
-        gain.gain.setValueAtTime(0.25, start);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(start);
-        osc.stop(start + duration);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + duration);
       };
 
-      // Crisp high-pitch 3-tone alert chime
+      const now = 0;
+      // High-tech notification chord chime
+      playTone(659.25, now, 0.15); // E5
       playTone(987.77, now, 0.15); // B5
       playTone(1318.51, now + 0.18, 0.2); // E6
       playTone(1760.00, now + 0.38, 0.35); // A6
@@ -185,7 +179,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
     }
   };
 
-  const startAlarm = (message = "Bus is approximately 5 minutes away from your pickup stop!") => {
+  const startAlarm = (message = "Bus is approximately 10 minutes away from your pickup stop!") => {
     setIsAlarmRinging(true);
     setAlarmModalOpen(true);
     playAlarmTone();
@@ -205,17 +199,14 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
     }
   };
 
-  // Check if current time falls within official operating windows
-  // Morning: 07:00 AM – 09:30 AM (420 to 570 mins)
-  // Evening: 04:30 PM – 07:00 PM (990 to 1140 mins)
-  const isWithinScanWindow = () => {
-    if (demoBypassTime) return true;
-    const now = new Date();
-    const mins = now.getHours() * 60 + now.getMinutes();
-    const isMorning = mins >= 420 && mins <= 570;
-    const isEvening = mins >= 990 && mins <= 1140;
-    return isMorning || isEvening;
-  };
+  // Automatically activate camera when student opens the Pass / QR tab
+  useEffect(() => {
+    if (activeTab === 'pass') {
+      setIsCameraActive(true);
+    } else {
+      setIsCameraActive(false);
+    }
+  }, [activeTab]);
 
   // Camera scanner effect for Student scanning Bus QR sticker (Strict live camera feed only)
   useEffect(() => {
@@ -257,11 +248,11 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
     };
   }, [isCameraActive]);
 
-  // Check proximity to trigger 5-minute arrival alarm automatically
+  // Check proximity to trigger 10-minute arrival alarm automatically
   useEffect(() => {
-    if (trip && trip.status === 'active' && trip.eta_mins > 0 && trip.eta_mins <= 5) {
+    if (trip && trip.status === 'active' && trip.eta_mins !== null && trip.eta_mins !== undefined && trip.eta_mins > 0 && trip.eta_mins <= 10) {
       if (!alarmDismissed && !isAlarmRinging) {
-        startAlarm(`Bus ${profile?.bus_number || '101'} is approximately ${trip.eta_mins} mins away from ${profile?.stop_name || 'your stop'}!`);
+        startAlarm(`Bus ${profile?.bus_number || 'BUS-101'} is approximately ${trip.eta_mins} mins away from ${profile?.stop_name || 'your stop'}!`);
       }
     }
   }, [trip?.eta_mins, trip?.status, alarmDismissed, isAlarmRinging]);
@@ -289,28 +280,22 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setProfile(data);
-      
-      // Fetch trip details for this student's bus route
-      if (data.route_id) {
-        fetchTripDetails(data.route_id, data.bus_id);
-      }
+      fetchTripDetails();
     } catch (e) {
       console.error('Error fetching student profile:', e);
     }
   };
 
-  const fetchTripDetails = async (routeId, busId) => {
+  const fetchTripDetails = async () => {
     try {
-      const res = await authFetch(`${API_BASE}/driver/trip/6`);
+      const res = await authFetch(`${API_BASE}/student/trip/${userId}`);
       const data = await res.json();
       if (res.ok) {
-        if (data.trip && data.trip.route_id === routeId) {
-          setTrip(data.trip);
-        }
+        setTrip(data.trip || null);
         setStops(data.stops || []);
       }
     } catch (e) {
-      console.error(e);
+      console.error('Error fetching student trip details:', e);
     }
   };
 
@@ -600,7 +585,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
 
   return (
     <div className="phone-screen" style={{ position: 'relative' }}>
-      {/* 5-Minute Proximity Alarm Alert Modal */}
+      {/* 10-Minute Proximity Alarm Alert Modal */}
       {alarmModalOpen && (
         <div style={{
           position: 'absolute',
@@ -622,13 +607,13 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <BellRing size={20} />
               <span style={{ fontWeight: '800', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                5-Min Proximity Alarm!
+                10-Min Proximity Alarm!
               </span>
             </div>
             <Volume2 size={18} />
           </div>
           <div style={{ fontSize: '12px', lineHeight: '1.4', opacity: 0.95 }}>
-            Bus <b>{profile.bus_number || '101'}</b> is approximately <b>{trip?.eta_mins || 5} mins</b> away from <b>{profile.stop_name || 'your stop'}</b>! Get ready to board.
+            Bus <b>{profile.bus_number || 'BUS-101'}</b> is approximately <b>{trip?.eta_mins || 10} mins</b> away from <b>{profile.stop_name || 'your stop'}</b>! Get ready to board.
           </div>
           <button 
             onClick={stopAlarm}
@@ -740,13 +725,13 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
                 </div>
               )}
 
-              {/* 5-Min Proximity Alarm Control Bar */}
+              {/* 10-Min Proximity Alarm Control Bar */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '10px', color: (trip?.eta_mins <= 5 && isTripActive) ? 'var(--accent-rose)' : 'var(--accent-cyan)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Bell size={12} /> {(trip?.eta_mins <= 5 && isTripActive) ? '5m Alarm Active' : '5m Proximity Alarm Armed'}
+                <span style={{ fontSize: '10px', color: (trip?.eta_mins <= 10 && isTripActive) ? 'var(--accent-rose)' : 'var(--accent-cyan)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Bell size={12} /> {(trip?.eta_mins <= 10 && isTripActive) ? '10m Alarm Active' : '10m Proximity Alarm Armed'}
                 </span>
                 <button 
-                  onClick={() => isAlarmRinging ? stopAlarm() : startAlarm("Demo Alarm: Bus is 5 minutes from your pickup location!")}
+                  onClick={() => isAlarmRinging ? stopAlarm() : startAlarm("Demo Alarm: Bus is 10 minutes from your pickup location!")}
                   style={{
                     background: isAlarmRinging ? 'rgba(239,68,68,0.2)' : 'rgba(6,182,212,0.1)',
                     border: '1px solid ' + (isAlarmRinging ? 'var(--accent-rose)' : 'var(--accent-cyan)'),
@@ -758,7 +743,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
                     cursor: 'pointer'
                   }}
                 >
-                  {isAlarmRinging ? 'Stop Alarm' : '🔔 Test 5m Alarm'}
+                  {isAlarmRinging ? 'Stop Alarm' : '🔔 Test 10m Alarm'}
                 </button>
               </div>
             </div>
@@ -942,19 +927,13 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Scan the QR sticker inside your bus</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {isWithinScanWindow() ? (
-                    <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Unlock size={10} /> Active Window
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--accent-rose)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Lock size={10} /> Inactive Window
-                    </span>
-                  )}
+                  <span style={{ fontSize: '10px', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Camera size={10} /> Direct Camera Scanner
+                  </span>
                 </div>
               </div>
 
-              {/* Time Window Notice */}
+              {/* Attendance Window Notice */}
               <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px', fontSize: '11px', lineHeight: '1.4' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                   <span><b>Morning:</b> 07:00 – 09:30 AM</span>
@@ -962,60 +941,46 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
                 </div>
               </div>
 
-              {!isWithinScanWindow() ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '16px 8px', textAlign: 'center' }}>
-                  <Lock size={32} color="var(--accent-rose)" />
-                  <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--accent-rose)' }}>
-                    Scanner Locked Outside Trip Hours
+              {/* Camera Scanner Stream View */}
+              {isCameraActive && (
+                <div style={{ border: '2px solid var(--accent-cyan)', borderRadius: '12px', padding: '10px', background: '#000', overflow: 'hidden' }}>
+                  <div id="student-bus-qr-reader" style={{ width: '100%' }}></div>
+                </div>
+              )}
+
+              {/* Camera Trigger */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button 
+                  onClick={() => setIsCameraActive(!isCameraActive)} 
+                  className="btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px', fontSize: '13px' }}
+                >
+                  <Camera size={18} /> {isCameraActive ? 'Close Camera Scanner' : 'Open Camera to Scan Bus QR Sticker'}
+                </button>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  Point your camera at the official QR code sticker posted at the bus entrance.
+                </span>
+              </div>
+
+              {/* Attendance Success Boarding Pass Ticket */}
+              {attendanceSuccess && (
+                <div style={{
+                  background: 'rgba(16,185,129,0.1)',
+                  border: '1px solid var(--accent-emerald)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-emerald)', fontWeight: '700', fontSize: '13px' }}>
+                    <CheckCircle2 size={16} /> Digital Attendance Verified
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Bus attendance scanning is only available during scheduled morning (07:00–09:30 AM) and evening (04:30–07:00 PM) transit hours.
+                  <div style={{ fontSize: '11px', color: 'var(--text-primary)' }}>{attendanceSuccess.message}</div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Boarded at: {attendanceSuccess.timestamp} • Status: <b>PRESENT</b>
                   </div>
                 </div>
-              ) : (
-                <>
-                  {/* Camera Scanner Stream View */}
-                  {isCameraActive && (
-                    <div style={{ border: '2px solid var(--accent-cyan)', borderRadius: '12px', padding: '10px', background: '#000', overflow: 'hidden' }}>
-                      <div id="student-bus-qr-reader" style={{ width: '100%' }}></div>
-                    </div>
-                  )}
-
-                  {/* Camera Trigger */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <button 
-                      onClick={() => setIsCameraActive(!isCameraActive)} 
-                      className="btn-primary"
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px', fontSize: '13px' }}
-                    >
-                      <Camera size={18} /> {isCameraActive ? 'Close Camera Scanner' : 'Open Camera to Scan Bus QR Sticker'}
-                    </button>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
-                      Point your camera at the official QR code sticker posted at the bus entrance.
-                    </span>
-                  </div>
-
-                  {/* Attendance Success Boarding Pass Ticket */}
-                  {attendanceSuccess && (
-                    <div style={{
-                      background: 'rgba(16,185,129,0.1)',
-                      border: '1px solid var(--accent-emerald)',
-                      borderRadius: '8px',
-                      padding: '12px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-emerald)', fontWeight: '700', fontSize: '13px' }}>
-                        <CheckCircle2 size={16} /> Digital Attendance Verified
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-primary)' }}>{attendanceSuccess.message}</div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        Boarded at: {attendanceSuccess.timestamp} • Status: <b>PRESENT</b>
-                      </div>
-                    </div>
-                  )}
-                </>
               )}
             </div>
 

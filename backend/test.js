@@ -140,8 +140,8 @@ async function runAllTests() {
       await client.query('INSERT INTO drivers (user_id, name, phone, license_number, status, active_bus_id) VALUES ($1, $2, $3, $4, $5, $6)', [u6.id, 'David Miller', '+1 555-0199', 'DL-12345678', 'inactive', b1.id]);
       await client.query('INSERT INTO admins (user_id, name) VALUES ($1, $2)', [u8.id, 'System Administrator']);
 
-      await client.query('INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date) VALUES ($1, $2, $3, $4, $5)', [u1.id, 800, 0, 800, '2026-08-15']);
-      await client.query('INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date) VALUES ($1, $2, $3, $4, $5)', [u2.id, 800, 0, 800, '2026-08-15']);
+      await client.query('INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date) VALUES ($1, $2, $3, $4, $5)', [u1.id, 5000, 0, 5000, '2026-08-15']);
+      await client.query('INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date) VALUES ($1, $2, $3, $4, $5)', [u2.id, 5000, 0, 5000, '2026-08-15']);
 
       await client.query('COMMIT');
     } finally {
@@ -260,8 +260,8 @@ async function runAllTests() {
 
     // Verify fee state after approval
     const updatedFee = (await pool.query('SELECT * FROM fees WHERE student_id = $1', [studentId])).rows[0];
-    assert(updatedFee.paid_amount === 500, 'Fee paid_amount updated to $500');
-    assert(updatedFee.pending_amount === 300, 'Fee pending_amount updated to $300');
+    assert(updatedFee.paid_amount === 500, 'Fee paid_amount updated to ₹500');
+    assert(updatedFee.pending_amount === 4500, 'Fee pending_amount updated to ₹4500');
     assert(updatedFee.updated_by === adminId, 'Audit updated_by recorded admin ID');
 
     const updatedStudent = (await pool.query('SELECT fee_status FROM students WHERE user_id = $1', [studentId])).rows[0];

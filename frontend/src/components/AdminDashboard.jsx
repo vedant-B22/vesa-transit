@@ -61,12 +61,23 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
   });
   const [csvText, setCsvText] = useState('');
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
-  const [defaultFeeAmount, setDefaultFeeAmount] = useState('800');
+  const [defaultFeeAmount, setDefaultFeeAmount] = useState('5000');
   const [feeDueDate, setFeeDueDate] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() + 3);
     return d.toISOString().split('T')[0];
   });
+
+  // Bulk Stops Import State
+  const [isBulkStopsModalOpen, setIsBulkStopsModalOpen] = useState(false);
+  const [bulkStopsRouteId, setBulkStopsRouteId] = useState('');
+  const [bulkStopsCsvText, setBulkStopsCsvText] = useState('');
+  const [bulkStopsLoading, setBulkStopsLoading] = useState(false);
+
+  // Attendance Scanning Window Override State
+  const [attendanceWindowMode, setAttendanceWindowMode] = useState('auto');
+  const [attendanceWindowStatus, setAttendanceWindowStatus] = useState(null);
+  const [attendanceWindowSaving, setAttendanceWindowSaving] = useState(false);
 
   // Fee Approval State
   const [feeModalStudent, setFeeModalStudent] = useState(null);
@@ -201,6 +212,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
     fetchDriverList();
     fetchBusList();
     fetchRouteList();
+    fetchAttendanceWindowSetting();
     initWebSocket();
 
     const interval = setInterval(() => {
@@ -315,6 +327,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
   useEffect(() => {
     if (activeMenu === 'attendance') {
       fetchAttendanceList();
+      fetchAttendanceWindowSetting();
     }
   }, [activeMenu, attendanceFilterDate, attendanceFilterRoute, attendanceFilterBus, attendanceFilterStatus]);
 
@@ -459,7 +472,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
         method: 'POST',
         body: JSON.stringify({
           students: importList,
-          defaultFeeAmount: parseFloat(defaultFeeAmount) || 800,
+          defaultFeeAmount: parseFloat(defaultFeeAmount) || 5000,
           feeDueDate: feeDueDate || new Date().toISOString().split('T')[0]
         })
       });
@@ -799,6 +812,85 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleBulkImportStops = async (e) => {
+    e?.preventDefault();
+    if (!bulkStopsRouteId) {
+      alert('Please select a target route for the stops.');
+      return;
+    }
+    if (!bulkStopsCsvText.trim()) {
+      alert('Please enter CSV data for stops.');
+      return;
+    }
+    try {
+      setBulkStopsLoading(true);
+      const res = await authFetch(`${API_BASE}/admin/stops/bulk-import`, {
+        method: 'POST',
+        body: JSON.stringify({
+          routeId: bulkStopsRouteId,
+          csvText: bulkStopsCsvText
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setIsBulkStopsModalOpen(false);
+        setBulkStopsCsvText('');
+        fetchRouteList();
+        if (stopsRoute && String(stopsRoute.id) === String(bulkStopsRouteId)) {
+          fetchStopsForRoute(stopsRoute.id);
+        }
+        let msg = `Successfully imported ${data.count || 0} stop(s) for ${data.route?.name || 'the route'}!`;
+        if (data.errors && data.errors.length > 0) {
+          msg += `\n\n${data.errors.length} row(s) had errors and were skipped:\n` +
+            data.errors.map(err => `• Row ${err.row}: ${err.error}`).join('\n');
+        }
+        alert(msg);
+      } else {
+        alert(data.error || 'Failed to import stops.');
+      }
+    } catch (err) {
+      console.error('Error bulk importing stops:', err);
+      alert('Network error during bulk stops import.');
+    } finally {
+      setBulkStopsLoading(false);
+    }
+  };
+
+  const fetchAttendanceWindowSetting = async () => {
+    try {
+      const res = await authFetch(`${API_BASE}/admin/settings/attendance-window`);
+      const data = await res.json();
+      if (res.ok) {
+        setAttendanceWindowMode(data.mode || 'auto');
+        setAttendanceWindowStatus(data);
+      }
+    } catch (e) {
+      console.error('Error fetching attendance window setting:', e);
+    }
+  };
+
+  const updateAttendanceWindowSetting = async (newMode) => {
+    try {
+      setAttendanceWindowSaving(true);
+      const res = await authFetch(`${API_BASE}/admin/settings/attendance-window`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: newMode })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAttendanceWindowMode(data.mode);
+        setAttendanceWindowStatus(data);
+      } else {
+        alert(data.error || 'Failed to update attendance window mode');
+      }
+    } catch (e) {
+      console.error('Error updating attendance window setting:', e);
+      alert('Network error while updating attendance window setting');
+    } finally {
+      setAttendanceWindowSaving(false);
     }
   };
 
@@ -1147,6 +1239,83 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
               </div>
             </div>
 
+            {/* Attendance Scanning Window Override Control */}
+            <div className="glass-card" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderLeft: '4px solid var(--accent-cyan)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Shield size={18} color="var(--accent-cyan)" />
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', margin: 0 }}>Attendance Scanning Window Enforcement</h3>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    background: attendanceWindowStatus?.isAllowed ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                    color: attendanceWindowStatus?.isAllowed ? 'var(--accent-emerald)' : 'var(--accent-rose)'
+                  }}>
+                    {attendanceWindowStatus?.isAllowed ? '● Scanning OPEN' : '● Scanning LOCKED'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Controls when students can scan the bus QR code to log digital attendance. Scheduled hours: Morning 07:00–09:30 AM & Evening 04:30–07:00 PM.
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => updateAttendanceWindowSetting('active')}
+                  disabled={attendanceWindowSaving}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    borderRadius: '6px',
+                    border: '1px solid ' + (attendanceWindowMode === 'active' ? 'var(--accent-emerald)' : 'var(--border-color)'),
+                    background: attendanceWindowMode === 'active' ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.03)',
+                    color: attendanceWindowMode === 'active' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Active (24/7 Open)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAttendanceWindowSetting('auto')}
+                  disabled={attendanceWindowSaving}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    borderRadius: '6px',
+                    border: '1px solid ' + (attendanceWindowMode === 'auto' ? 'var(--accent-cyan)' : 'var(--border-color)'),
+                    background: attendanceWindowMode === 'auto' ? 'rgba(6,182,212,0.2)' : 'rgba(255,255,255,0.03)',
+                    color: attendanceWindowMode === 'auto' ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Auto (Trip Hours)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAttendanceWindowSetting('inactive')}
+                  disabled={attendanceWindowSaving}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    borderRadius: '6px',
+                    border: '1px solid ' + (attendanceWindowMode === 'inactive' ? 'var(--accent-rose)' : 'var(--border-color)'),
+                    background: attendanceWindowMode === 'inactive' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.03)',
+                    color: attendanceWindowMode === 'inactive' ? 'var(--accent-rose)' : 'var(--text-secondary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Inactive (Locked)
+                </button>
+              </div>
+            </div>
+
             {/* Filter Bar */}
             <div className="glass-card" style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', padding: '16px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)', fontWeight: '700', fontSize: '13px' }}>
@@ -1485,14 +1654,14 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
                           </span>
                         </td>
                         <td style={{ fontWeight: '600', color: (s.pending_amount > 0 ? 'var(--accent-amber)' : 'var(--text-secondary)') }}>
-                          ₹{s.pending_amount !== undefined ? s.pending_amount : (s.fee_status === 'paid' ? 0 : 800)}
+                          ₹{s.pending_amount !== undefined ? s.pending_amount : (s.fee_status === 'paid' ? 0 : 5000)}
                         </td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <button 
                               onClick={() => {
                                 setFeeModalStudent(s);
-                                setFeeAmount(s.pending_amount ? String(s.pending_amount) : '800');
+                                setFeeAmount(s.pending_amount ? String(s.pending_amount) : '5000');
                                 setFeeStatus('paid');
                               }} 
                               className="btn-primary" 
@@ -1653,7 +1822,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
                         type="number"
                         step="0.01"
                         className="input-field"
-                        placeholder="e.g. 800"
+                        placeholder="e.g. 5000"
                         value={feeAmount}
                         onChange={e => setFeeAmount(e.target.value)}
                         required
@@ -1714,7 +1883,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
                       <input 
                         type="number" 
                         className="input-field" 
-                        placeholder="800" 
+                        placeholder="5000" 
                         value={defaultFeeAmount} 
                         onChange={e => setDefaultFeeAmount(e.target.value)} 
                         min="0"
@@ -2190,17 +2359,29 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
                 <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Active Transit Route Planners & Stops</h3>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Create and edit transit routes, configure pickup stops, coordinates, and schedules.</span>
               </div>
-              <button 
-                onClick={() => setRouteModal({
-                  isOpen: true,
-                  mode: 'add',
-                  data: { id: null, name: '', startLocation: '', endLocation: '', distanceKm: 15, estimatedDurationMins: 45 }
-                })}
-                className="btn-primary" 
-                style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                <Plus size={16} /> Add New Route
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => {
+                    setBulkStopsRouteId(routes[0]?.id ? String(routes[0].id) : '');
+                    setIsBulkStopsModalOpen(true);
+                  }}
+                  className="btn-secondary" 
+                  style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <Upload size={16} /> Bulk Import Stops (CSV)
+                </button>
+                <button 
+                  onClick={() => setRouteModal({
+                    isOpen: true,
+                    mode: 'add',
+                    data: { id: null, name: '', startLocation: '', endLocation: '', distanceKm: 15, estimatedDurationMins: 45 }
+                  })}
+                  className="btn-primary" 
+                  style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <Plus size={16} /> Add New Route
+                </button>
+              </div>
             </div>
 
             <div className="glass-card">
@@ -2372,7 +2553,17 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
                     </button>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button 
+                      onClick={() => {
+                        setBulkStopsRouteId(String(stopsRoute.id));
+                        setIsBulkStopsModalOpen(true);
+                      }}
+                      className="btn-secondary"
+                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Upload size={14} /> Bulk CSV Import
+                    </button>
                     <button 
                       onClick={() => setStopModal({
                         isOpen: true,
@@ -2529,6 +2720,75 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '6px' }}>
                       <button type="submit" className="btn-primary">Save Stop</button>
                       <button type="button" onClick={() => setStopModal({ ...stopModal, isOpen: false })} className="btn-secondary">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Bulk Stops CSV Import Modal Overlay */}
+            {isBulkStopsModalOpen && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
+                <div className="glass-card" style={{ width: '600px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Bulk Import Route Stops (CSV)</h3>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        Import all pickup points with coordinates and schedules for a route in one batch.
+                      </span>
+                    </div>
+                    <button onClick={() => setIsBulkStopsModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleBulkImportStops} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Select Target Transit Route</label>
+                      <select 
+                        className="input-field" 
+                        value={bulkStopsRouteId} 
+                        onChange={e => setBulkStopsRouteId(e.target.value)}
+                        style={{ background: 'var(--bg-main)' }}
+                        required
+                      >
+                        <option value="">-- Choose Route --</option>
+                        {routes.map(r => (
+                          <option key={r.id} value={r.id}>{r.name} ({r.start_location} → {r.end_location})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: '8px', padding: '12px', fontSize: '12px', lineHeight: '1.5' }}>
+                      <div style={{ fontWeight: '700', color: 'var(--accent-cyan)', marginBottom: '4px' }}>CSV Format (5 columns per line):</div>
+                      <code style={{ fontSize: '11px', color: 'var(--text-primary)' }}>
+                        Pickup Point Name, Pickup Time, Latitude, Longitude, Sequence Number
+                      </code>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Example:<br/>
+                        Navale Bridge, 07:15 AM, 12.9716, 77.5946, 1<br/>
+                        Chandani Chowk, 07:30 AM, 12.9810, 77.6010, 2
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Paste CSV Content</label>
+                      <textarea 
+                        className="input-field" 
+                        rows="8" 
+                        placeholder={"Navale Bridge, 07:15 AM, 12.9716, 77.5946, 1\nChandani Chowk, 07:30 AM, 12.9810, 77.6010, 2\nKothrud Stand, 07:45 AM, 12.9920, 77.6100, 3"}
+                        value={bulkStopsCsvText} 
+                        onChange={e => setBulkStopsCsvText(e.target.value)} 
+                        style={{ fontFamily: 'monospace', fontSize: '12px', resize: 'vertical' }}
+                        required
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '6px' }}>
+                      <button type="submit" disabled={bulkStopsLoading} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        <Upload size={16} /> {bulkStopsLoading ? 'Importing Stops...' : 'Import Stops Batch'}
+                      </button>
+                      <button type="button" onClick={() => setIsBulkStopsModalOpen(false)} className="btn-secondary">Cancel</button>
                     </div>
                   </form>
                 </div>

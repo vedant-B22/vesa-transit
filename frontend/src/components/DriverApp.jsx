@@ -43,6 +43,7 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
   const [attendance, setAttendance] = useState([]);
   const [activeStopIndex, setActiveStopIndex] = useState(0);
   const [tripStatus, setTripStatus] = useState('scheduled'); // 'scheduled', 'active', 'completed'
+  const [tripError, setTripError] = useState(null);
   
   // Real-time alerts
   const [waitAlert, setWaitAlert] = useState(null);
@@ -295,9 +296,10 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
 
   const fetchTrip = async () => {
     try {
+      setTripError(null);
       const res = await authFetch(`${API_BASE}/driver/trip/${userId}`);
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && data.trip) {
         setTrip(data.trip);
         setStops(data.stops || []);
         setTripStatus(data.trip.status);
@@ -305,9 +307,12 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
           fetchAttendance(data.trip.id);
           startRealGpsTracking(data.trip.id);
         }
+      } else {
+        setTripError(data.error || 'No active or scheduled bus assignment found for this driver.');
       }
     } catch (e) {
       console.error('Error fetching driver trip data:', e);
+      setTripError('Failed to synchronize driver unit with transit server. Please check your connection.');
     }
   };
 
@@ -512,6 +517,39 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
   };
 
   if (!trip) {
+    if (tripError) {
+      return (
+        <div className="phone-screen" style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          <div className="emulator-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Navigation size={15} color="var(--accent-cyan)" />
+              <span style={{ fontSize: '13px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>VESA Driver</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {toggleTheme && <ThemeToggle theme={theme} onToggle={toggleTheme} compact />}
+              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>
+                Logout
+              </button>
+            </div>
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '28px', textAlign: 'center', gap: '16px' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(244,63,94,0.15)', border: '1px solid var(--accent-rose)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-rose)' }}>
+              <AlertOctagon size={28} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>Driver Assignment Required</h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.45, margin: 0 }}>
+                {tripError}
+              </p>
+            </div>
+            <button onClick={fetchTrip} className="btn-primary" style={{ width: 'auto', padding: '10px 22px', fontSize: '13px', marginTop: '8px' }}>
+              Retry Sync
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', alignItems: 'center', background: 'var(--bg-main)', color: 'var(--text-primary)' }}>
         <div className="pulse-badge">Synchronizing Driver Unit...</div>
@@ -550,13 +588,13 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
             </span>
             <div className="qr-box" style={{ background: '#fff', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <QRCodeImage 
-                value={`VESA_BUS_${trip.bus_number || '101'}`} 
+                value={`VESA_BUS_${trip.bus_number || 'BUS-101'}`} 
                 size={160} 
                 alt={`Bus ${trip.bus_number} QR Code`} 
               />
             </div>
             <div>
-              <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>Bus #{trip.bus_number}</h3>
+              <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>Bus {trip.bus_number}</h3>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Code: VESA_BUS_{trip.bus_number}</span>
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>

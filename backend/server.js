@@ -442,12 +442,86 @@ app.post('/api/student/sos', alertLimiter, authenticateToken, requireRole('stude
   }
 });
 
+// Check attendance scanning window (combines admin manual override and default scheduled transit window)
+async function isAttendanceScanningAllowed() {
+  try {
+    const setting = await db.get("SELECT value FROM settings WHERE key = 'attendance_scanning_mode'");
+    const mode = setting?.value || 'auto';
+    if (mode === 'active') {
+      return { allowed: true, mode: 'active', message: 'Attendance scanning is manually enabled by campus administration.' };
+    }
+    if (mode === 'inactive') {
+      return { allowed: false, mode: 'inactive', message: 'Attendance scanning is currently disabled by campus administration.' };
+    }
+
+    // Default 'auto' time window check: 07:00-09:30 AM and 04:30-07:00 PM
+    const now = new Date();
+    const curMins = now.getHours() * 60 + now.getMinutes();
+    const morningStart = 7 * 60; // 07:00
+    const morningEnd = 9 * 60 + 30; // 09:30
+    const eveningStart = 16 * 60 + 30; // 16:30
+    const eveningEnd = 19 * 60; // 19:00
+    const isAutoWindow = (curMins >= morningStart && curMins <= morningEnd) || (curMins >= eveningStart && curMins <= eveningEnd);
+    return {
+      allowed: isAutoWindow,
+      mode: 'auto',
+      message: isAutoWindow 
+        ? 'Attendance scanning is active during scheduled transit window.' 
+        : 'Bus attendance scanning is outside scheduled morning (07:00–09:30 AM) and evening (04:30–07:00 PM) hours.'
+    };
+  } catch (e) {
+    console.error('Error checking attendance scanning window:', e);
+    return { allowed: true, mode: 'auto', message: 'Attendance scanning is active.' };
+  }
+}
+
+// System Attendance Window Status (Public / for all roles)
+app.get('/api/system/attendance-window', async (req, res) => {
+  const status = await isAttendanceScanningAllowed();
+  res.json(status);
+});
+
+// Admin Get/Set Attendance Scanning Mode Setting
+app.get('/api/admin/settings/attendance-window', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const setting = await db.get("SELECT value FROM settings WHERE key = 'attendance_scanning_mode'");
+    const status = await isAttendanceScanningAllowed();
+    res.json({ mode: setting?.value || 'auto', ...status });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/admin/settings/attendance-window', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  const { mode } = req.body;
+  if (!['active', 'inactive', 'auto'].includes(mode)) {
+    return res.status(400).json({ error: "mode must be 'active', 'inactive', or 'auto'" });
+  }
+  try {
+    const existing = await db.get("SELECT key FROM settings WHERE key = 'attendance_scanning_mode'");
+    if (existing) {
+      await db.run("UPDATE settings SET value = $1 WHERE key = 'attendance_scanning_mode'", [mode]);
+    } else {
+      await db.run("INSERT INTO settings (key, value) VALUES ('attendance_scanning_mode', $1)", [mode]);
+    }
+    const status = await isAttendanceScanningAllowed();
+    res.json({ success: true, mode, ...status });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Student scans Bus QR Code
 app.post('/api/student/scan-bus-qr', authenticateToken, requireRole('student', 'admin'), verifyResourceOwnership('student'), async (req, res, next) => {
   const { studentId, busQrCode, scanType } = req.body;
   if (!studentId) return res.status(400).json({ error: 'studentId is required' });
 
   try {
+    const scanWindow = await isAttendanceScanningAllowed();
+    if (!scanWindow.allowed) {
+      return res.status(403).json({ success: false, message: scanWindow.message });
+    }
+
     const student = await db.get(
       `SELECT s.*, st.name as stop_name, b.bus_number, b.id as bus_table_id 
        FROM students s
@@ -469,7 +543,7 @@ app.post('/api/student/scan-bus-qr', authenticateToken, requireRole('student', '
       [normalizedCode, normalizedCode, normalizedCode]
     ) || await db.get('SELECT * FROM buses WHERE id = $1', [student.bus_id || 1]);
 
-    const busNumber = matchedBus ? matchedBus.bus_number : (student.bus_number || '101');
+    const busNumber = matchedBus ? matchedBus.bus_number : (student.bus_number || 'BUS-101');
     const busId = matchedBus ? matchedBus.id : (student.bus_id || 1);
 
     let activeTrip = await db.get(
@@ -539,6 +613,38 @@ app.post('/api/student/scan-bus-qr', authenticateToken, requireRole('student', '
   }
 });
 
+// Student Trip & Stops
+app.get('/api/student/trip/:id', authenticateToken, requireRole('student', 'admin'), verifyResourceOwnership('student'), async (req, res, next) => {
+  try {
+    const student = await db.get('SELECT bus_id, route_id FROM students WHERE user_id = $1', [req.params.id]);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    let trip = null;
+    if (student.bus_id) {
+      trip = await db.get(
+        'SELECT t.*, r.name as route_name, b.bus_number FROM trips t JOIN routes r ON t.route_id = r.id JOIN buses b ON t.bus_id = b.id WHERE t.bus_id = $1 AND t.status = \'active\' ORDER BY t.id DESC LIMIT 1',
+        [student.bus_id]
+      );
+      if (!trip) {
+        trip = await db.get(
+          'SELECT t.*, r.name as route_name, b.bus_number FROM trips t JOIN routes r ON t.route_id = r.id JOIN buses b ON t.bus_id = b.id WHERE t.bus_id = $1 AND t.status = \'scheduled\' ORDER BY t.id DESC LIMIT 1',
+          [student.bus_id]
+        );
+      }
+    }
+
+    const routeId = trip?.route_id || student.route_id;
+    let stops = [];
+    if (routeId) {
+      stops = await db.query('SELECT * FROM stops WHERE route_id = $1 ORDER BY sequence_order ASC', [routeId]);
+    }
+
+    res.json({ trip, stops });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // -------------------------------------------------------------
 // DRIVER ROUTES (Requires Driver role & resource ownership)
 // -------------------------------------------------------------
@@ -559,19 +665,36 @@ app.get('/api/driver/trip/:driverId', authenticateToken, requireRole('driver', '
     }
 
     if (!trip) {
-      const driver = await db.get('SELECT active_bus_id FROM drivers WHERE user_id = $1', [req.params.driverId]);
-      const busId = driver?.active_bus_id || 1;
-      const routeId = busId === 1 ? 1 : 2;
+      const driver = await db.get('SELECT * FROM drivers WHERE user_id = $1', [req.params.driverId]);
+      if (!driver || !driver.active_bus_id) {
+        return res.status(404).json({ error: 'No bus assigned to this driver yet — contact your admin.' });
+      }
+
+      // Check if a route exists for this bus or find first available route
+      const studentWithRoute = await db.get('SELECT route_id FROM students WHERE bus_id = $1 AND route_id IS NOT NULL LIMIT 1', [driver.active_bus_id]);
+      let routeId = studentWithRoute?.route_id;
+      if (!routeId) {
+        const firstRoute = await db.get('SELECT id FROM routes LIMIT 1');
+        routeId = firstRoute?.id;
+      }
+
+      if (!routeId) {
+        return res.status(404).json({ error: 'No route available for the assigned bus. Please add a route in admin dashboard.' });
+      }
 
       const newTripRes = await db.run(
         'INSERT INTO trips (bus_id, route_id, driver_id, status) VALUES ($1, $2, $3, \'scheduled\') RETURNING id',
-        [busId, routeId, req.params.driverId]
+        [driver.active_bus_id, routeId, req.params.driverId]
       );
 
       trip = await db.get(
         'SELECT t.*, r.name as route_name, b.bus_number FROM trips t JOIN routes r ON t.route_id = r.id JOIN buses b ON t.bus_id = b.id WHERE t.id = $1',
         [newTripRes.id]
       );
+    }
+
+    if (!trip) {
+      return res.status(404).json({ error: 'Could not initialize transit trip for this driver.' });
     }
 
     const stops = await db.query(
@@ -1144,7 +1267,7 @@ app.post('/api/admin/students', authenticateToken, requireRole('admin'), async (
 
       await tx.run(
         `INSERT INTO fees (student_id, total_amount, paid_amount, pending_amount, due_date, updated_by) 
-         VALUES ($1, 800, 0, 800, '2026-08-15', $2)`,
+         VALUES ($1, 5000, 0, 5000, '2026-08-15', $2)`,
         [createdUserId, req.user.userId]
       );
     });
@@ -1195,7 +1318,7 @@ app.post('/api/admin/students/import-csv', authenticateToken, requireRole('admin
 
   const feeAmount = (Number.isFinite(parseFloat(defaultFeeAmount)) && parseFloat(defaultFeeAmount) >= 0)
     ? parseFloat(defaultFeeAmount)
-    : 800;
+    : 5000;
   const dueDate = (feeDueDate && typeof feeDueDate === 'string' && feeDueDate.trim())
     ? feeDueDate.trim()
     : '2026-12-31';
@@ -1591,6 +1714,115 @@ app.delete('/api/admin/stops/:id', authenticateToken, requireRole('admin'), asyn
   try {
     await db.run('DELETE FROM stops WHERE id = $1', [req.params.id]);
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Bulk Import Stops for a Route
+app.post('/api/admin/stops/bulk-import', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  const { routeId, csvText } = req.body;
+  const validationErr = validateRequired(req.body, ['routeId', 'csvText']);
+  if (validationErr) return res.status(400).json({ error: validationErr });
+
+  try {
+    const route = await db.get('SELECT id, name FROM routes WHERE id = $1', [parseInt(routeId, 10)]);
+    if (!route) {
+      return res.status(404).json({ error: 'Specified route does not exist.' });
+    }
+
+    const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) {
+      return res.status(400).json({ error: 'CSV content is empty.' });
+    }
+
+    // Check if first line is a header row
+    const firstLineLower = lines[0].toLowerCase();
+    const hasHeader = firstLineLower.includes('pickup') || firstLineLower.includes('stop') || firstLineLower.includes('sequence') || firstLineLower.includes('latitude') || firstLineLower.includes('time');
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+
+    if (dataLines.length === 0) {
+      return res.status(400).json({ error: 'No data rows found in CSV after header row.' });
+    }
+
+    const parsedStops = [];
+    const errors = [];
+    const seenSequences = new Set();
+
+    dataLines.forEach((line, idx) => {
+      const lineNum = hasHeader ? idx + 2 : idx + 1;
+      const parts = line.split(',').map(p => p.trim());
+      
+      // Expected: Pickup Point Name, Pickup Time, Latitude, Longitude, Sequence Number
+      if (parts.length < 5) {
+        errors.push({ line: lineNum, error: `Incomplete columns (expected 5 columns: Name, Time, Latitude, Longitude, Sequence), found ${parts.length}` });
+        return;
+      }
+
+      const [name, scheduledTime, latStr, lngStr, seqStr] = parts;
+
+      if (!name) {
+        errors.push({ line: lineNum, error: 'Pickup Point Name cannot be empty.' });
+        return;
+      }
+
+      if (!scheduledTime) {
+        errors.push({ line: lineNum, error: 'Pickup Time cannot be empty.' });
+        return;
+      }
+
+      const lat = parseFloat(latStr);
+      const lng = parseFloat(lngStr);
+      if (isNaN(lat) || isNaN(lng)) {
+        errors.push({ line: lineNum, error: `Invalid coordinates: Latitude '${latStr}', Longitude '${lngStr}' must be valid decimal numbers.` });
+        return;
+      }
+
+      const seq = parseInt(seqStr, 10);
+      if (isNaN(seq) || seq <= 0) {
+        errors.push({ line: lineNum, error: `Invalid Sequence Number '${seqStr}' (must be a positive number).` });
+        return;
+      }
+
+      if (seenSequences.has(seq)) {
+        errors.push({ line: lineNum, error: `Duplicate Sequence Number ${seq} within this CSV batch.` });
+        return;
+      }
+
+      seenSequences.add(seq);
+      parsedStops.push({
+        routeId: route.id,
+        name,
+        scheduledTime,
+        latitude: lat,
+        longitude: lng,
+        sequenceOrder: seq
+      });
+    });
+
+    if (parsedStops.length === 0) {
+      return res.status(400).json({
+        error: 'No valid stops could be parsed from the CSV.',
+        errors
+      });
+    }
+
+    // Insert all valid parsed stops in a single transaction
+    await db.withTransaction(async (tx) => {
+      for (const stop of parsedStops) {
+        await tx.run(
+          'INSERT INTO stops (route_id, name, latitude, longitude, sequence_order, scheduled_time) VALUES ($1, $2, $3, $4, $5, $6)',
+          [stop.routeId, stop.name, stop.latitude, stop.longitude, stop.sequenceOrder, stop.scheduledTime]
+        );
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully imported ${parsedStops.length} pickup points to route "${route.name}".`,
+      importedCount: parsedStops.length,
+      errors: errors.length > 0 ? errors : undefined
+    });
   } catch (err) {
     next(err);
   }
