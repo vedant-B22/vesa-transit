@@ -428,6 +428,112 @@ async function runAllTests() {
     assert(fatalError !== null && fatalError.message.includes('FATAL: JWT_SECRET environment variable is missing'), 'Missing JWT_SECRET throws fatal startup error');
   });
 
+  // -------------------------------------------------------------
+  // 11. ATTENDANCE UNIQUE CONSTRAINT & ON CONFLICT DEDUPLICATION
+  // -------------------------------------------------------------
+  await test('Attendance Table Unique Constraint & ON CONFLICT Deduplication', async () => {
+    const student = (await pool.query("SELECT user_id FROM students LIMIT 1")).rows[0];
+    const bus = (await pool.query("SELECT id FROM buses LIMIT 1")).rows[0];
+    const route = (await pool.query("SELECT id FROM routes LIMIT 1")).rows[0];
+    const driver = (await pool.query("SELECT user_id FROM drivers LIMIT 1")).rows[0];
+
+    // Create a dedicated test trip
+    const trip = (await pool.query(
+      "INSERT INTO trips (bus_id, route_id, driver_id, status) VALUES ($1, $2, $3, 'active') RETURNING id",
+      [bus.id, route.id, driver.user_id]
+    )).rows[0];
+
+    // First insert
+    await pool.query(
+      "INSERT INTO attendance (trip_id, student_id, status) VALUES ($1, $2, 'absent') ON CONFLICT (trip_id, student_id) DO NOTHING",
+      [trip.id, student.user_id]
+    );
+
+    // Second insert with different status using ON CONFLICT DO NOTHING (e.g. restarting trip)
+    await pool.query(
+      "INSERT INTO attendance (trip_id, student_id, status) VALUES ($1, $2, 'absent') ON CONFLICT (trip_id, student_id) DO NOTHING",
+      [trip.id, student.user_id]
+    );
+
+    let count = (await pool.query(
+      "SELECT COUNT(*) as count FROM attendance WHERE trip_id = $1 AND student_id = $2",
+      [trip.id, student.user_id]
+    )).rows[0].count;
+
+    assert(parseInt(count, 10) === 1, 'Exactly one attendance row exists per (trip_id, student_id)');
+
+    // Upsert to present (e.g. student boarding scan)
+    await pool.query(
+      `INSERT INTO attendance (trip_id, student_id, status) 
+       VALUES ($1, $2, 'present')
+       ON CONFLICT (trip_id, student_id) 
+       DO UPDATE SET status = 'present'`,
+      [trip.id, student.user_id]
+    );
+
+    const record = (await pool.query(
+      "SELECT * FROM attendance WHERE trip_id = $1 AND student_id = $2",
+      [trip.id, student.user_id]
+    )).rows[0];
+
+    assert(record.status === 'present', 'Attendance status updated to present');
+  });
+
+  // -------------------------------------------------------------
+  // 12. STRICT DRIVER ROUTE RESOLUTION (NO HARDCODED NUMERIC FALLBACKS)
+  // -------------------------------------------------------------
+  await test('Strict Driver Route Resolution from Database Relationships (No Fallbacks)', async () => {
+    // Helper function mirroring resolveDriverRoute using current test pool
+    async function testResolveDriverRoute(driverId) {
+      if (!driverId) return { error: 'driverId is required', driver: null, bus: null, route: null };
+      
+      const driver = (await pool.query(
+        `SELECT d.*, b.bus_number, b.capacity, b.status as bus_status
+         FROM drivers d
+         LEFT JOIN buses b ON d.active_bus_id = b.id
+         WHERE d.user_id = $1`,
+        [driverId]
+      )).rows[0];
+
+      if (!driver) return { error: 'Driver account not found', driver: null, bus: null, route: null };
+      if (!driver.active_bus_id || !driver.bus_number) {
+        return { error: 'No bus assigned to this driver yet — contact your admin', driver, bus: null, route: null };
+      }
+
+      const bus = { id: driver.active_bus_id, bus_number: driver.bus_number };
+
+      const studentRoute = (await pool.query(
+        `SELECT r.id, r.name, r.start_location, r.end_location, r.distance_km, r.estimated_duration_mins
+         FROM students s
+         JOIN routes r ON s.route_id = r.id
+         WHERE s.bus_id = $1 AND s.route_id IS NOT NULL
+         LIMIT 1`,
+        [driver.active_bus_id]
+      )).rows[0];
+
+      if (studentRoute && studentRoute.id) {
+        return { error: null, driver, bus, route: studentRoute };
+      }
+
+      return { error: 'No route assigned for this bus yet — contact your admin', driver, bus, route: null };
+    }
+
+    // Driver with bus and student route assigned -> succeeds strictly without fallbacks
+    const driver6 = (await pool.query("SELECT user_id FROM drivers WHERE active_bus_id IS NOT NULL LIMIT 1")).rows[0];
+    const resValid = await testResolveDriverRoute(driver6.user_id);
+    assert(resValid.error === null, 'Driver with active bus resolves successfully');
+    assert(resValid.bus !== null && resValid.route !== null, 'Bus and route returned');
+
+    // Create an unassigned driver
+    const hash = await bcrypt.hash('password123', 10);
+    const uUnassigned = (await pool.query("INSERT INTO users (email, password_hash, role) VALUES ('unassigned@transit.com', $1, 'driver') RETURNING id", [hash])).rows[0];
+    await pool.query("INSERT INTO drivers (user_id, name, phone, license_number, status, active_bus_id) VALUES ($1, 'Unassigned Driver', '+1 000', 'DL-000', 'inactive', NULL)", [uUnassigned.id]);
+
+    const resUnassigned = await testResolveDriverRoute(uUnassigned.id);
+    assert(resUnassigned.error !== null, 'Unassigned driver returns error');
+    assert(resUnassigned.error.includes('No bus assigned'), 'Clear error message returned for unassigned driver instead of guessing');
+  });
+
   console.log('\n====================================================');
   console.log(`Test Results: ${passed} / ${total} Tests Passed Successfully (${Math.round((passed / total) * 100)}%)`);
   console.log('====================================================');

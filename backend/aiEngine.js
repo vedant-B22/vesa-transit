@@ -285,16 +285,19 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
   const isMarathi = lang === 'mr' || q.includes('नाही') || q.includes('येत') || q.includes('कोण') || q.includes('थांबा') || q.includes('प्रवासी');
   const isHindi = !isMarathi && (lang === 'hi' || q.includes('नहीं') || q.includes('कौन') || q.includes('छात्र') || q.includes('स्टॉप') || q.includes('कितने') || q.includes('यात्री'));
 
-  // Fetch driver info and active trip
-  const driver = await db.get(
-    `SELECT d.*, u.email, b.bus_number, r.name as route_name, r.id as route_id
-     FROM drivers d
-     JOIN users u ON d.user_id = u.id
-     LEFT JOIN buses b ON d.active_bus_id = b.id
-     LEFT JOIN routes r ON r.id = (CASE WHEN d.active_bus_id = 1 THEN 1 ELSE 2 END)
-     WHERE d.user_id = $1`,
-    [driverId]
-  );
+  // Strictly resolve driver's assigned bus and real route with zero hardcoded fallbacks
+  const resolved = await db.resolveDriverRoute(driverId);
+  if (resolved.error || !resolved.bus || !resolved.route) {
+    if (isMarathi) {
+      return "या ड्रायव्हरसाठी कोणतीही बस किंवा रूट नियुक्त केलेली नाही — कृपया प्रशासकाशी संपर्क साधा.";
+    }
+    if (isHindi) {
+      return "इस ड्राइवर के लिए कोई बस या रूट असाइन नहीं किया गया है — कृपया एडमिन से संपर्क करें।";
+    }
+    return "No bus or route is assigned to this driver yet — contact your admin.";
+  }
+
+  const { driver, bus, route } = resolved;
 
   const activeTrip = await db.get(
     `SELECT t.*, st.name as current_stop_name, nst.name as next_stop_name
@@ -303,11 +306,10 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
      LEFT JOIN stops nst ON t.next_stop_id = nst.id
      WHERE (t.driver_id = $1 OR t.bus_id = $2) AND t.status IN ('active', 'started', 'en_route')
      ORDER BY t.created_at DESC LIMIT 1`,
-    [driverId, driver?.active_bus_id || 1]
+    [driverId, bus.id]
   );
 
-  // Fetch student roster status for this route
-  const routeId = driver?.route_id || activeTrip?.route_id || 1;
+  // Fetch student roster status for this route strictly from resolved route ID
   const students = await db.query(
     `SELECT s.*, st.name as stop_name,
             CASE WHEN nc.id IS NOT NULL THEN 'not_coming'
@@ -318,7 +320,7 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
      LEFT JOIN not_coming nc ON s.user_id = nc.student_id AND nc.date = $1
      LEFT JOIN attendance a ON s.user_id = a.student_id AND a.trip_id = $2
      WHERE s.route_id = $3`,
-    [todayStr, activeTrip?.id || 0, routeId]
+    [todayStr, activeTrip?.id || 0, route.id]
   );
 
   const notComing = students.filter(s => s.passenger_status === 'not_coming');
@@ -333,7 +335,7 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
       if (notComing.length === 0) {
         return "आज सर्व विद्यार्थी येत आहेत! या रूटवर कोणतीही गैरहजेरी नोंदवलेली नाही.";
       }
-      const names = notComing.map(s => `${s.name} (${s.stop_name})`).join(', ');
+      const names = notComing.map(s => `${s.name} (${s.stop_name || 'स्टॉप'})`).join(', ');
       return `आज ${notComing.length} विद्यार्थी येत नाहीत: ${names}. तुम्हाला त्यांच्या थांब्यावर थांबण्याची गरज नाही.`;
     }
 
@@ -341,7 +343,7 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
       if (notComing.length === 0) {
         return "आज सभी छात्र आ रहे हैं! इस रूट पर किसी भी छात्र की अनुपस्थिति दर्ज नहीं है।";
       }
-      const names = notComing.map(s => `${s.name} (${s.stop_name})`).join(', ');
+      const names = notComing.map(s => `${s.name} (${s.stop_name || 'स्टॉप'})`).join(', ');
       return `आज ${notComing.length} छात्र नहीं आ रहे हैं: ${names}। आपको उनके लिए रुकने की आवश्यकता नहीं है।`;
     }
 
@@ -349,7 +351,7 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
     if (notComing.length === 0) {
       return "All scheduled students are coming today! No absences reported for this route.";
     }
-    const names = notComing.map(s => `${s.name} at ${s.stop_name}`).join(', ');
+    const names = notComing.map(s => `${s.name} at ${s.stop_name || 'assigned stop'}`).join(', ');
     return `There are ${notComing.length} student${notComing.length > 1 ? 's' : ''} not coming today: ${names}. You do not need to wait for them.`;
   }
 
@@ -372,7 +374,7 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
   if (q.includes('next stop') || q.includes('where are we') || q.includes('destination') || q.includes('upcoming stop') || q.includes('arrival') ||
       q.includes('थांबा') || q.includes('पुढचा') || q.includes('स्टॉप') || q.includes('अगला')) {
     
-    const nextStop = activeTrip?.next_stop_name || activeTrip?.current_stop_name || 'VESA Campus Terminal';
+    const nextStop = activeTrip?.next_stop_name || activeTrip?.current_stop_name || `${route.end_location || 'Campus Terminal'}`;
     const speed = Math.round(activeTrip?.speed || 35);
     const eta = activeTrip?.eta_mins || 8;
 
@@ -392,15 +394,15 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
       q.includes('रूट') || q.includes('स्थिती') || q.includes('ट्रॅफिक') || q.includes('ट्रैफिक')) {
     
     if (isMarathi) {
-      return `बस क्रमांक ${driver?.bus_number || '101'} (${driver?.route_name || 'Route A'}) सुरळीत चालू आहे. एआय रूट ऑप्टिमायझेशन सुरू आहे.`;
+      return `बस ${bus.bus_number} (${route.name}) सुरळीत चालू आहे. एआय रूट ऑप्टिमायझेशन सुरू आहे.`;
     }
 
     if (isHindi) {
-      return `बस नंबर ${driver?.bus_number || '101'} (${driver?.route_name || 'Route A'}) सुचारू रूप से चल रही है। एआई रूट ऑप्टिमाइजेशन सक्रिय है।`;
+      return `बस ${bus.bus_number} (${route.name}) सुचारू रूप से चल रही है। एआई रूट ऑप्टिमाइजेशन सक्रिय है।`;
     }
 
     const tripState = activeTrip ? 'active and en route' : 'scheduled at terminal';
-    return `Bus ${driver?.bus_number || '101'} on ${driver?.route_name || 'Route A'} is ${tripState}. AI route optimization is active.`;
+    return `Bus ${bus.bus_number} on ${route.name} is ${tripState}. AI route optimization is active.`;
   }
 
   // 5. Default Greeting / Help
@@ -412,5 +414,5 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
     return `नमस्ते! मैं ड्राइवर वॉइस असिस्टेंट हूँ। आप पूछ सकते हैं: "आज कौन नहीं आ रहा है?", "कुल कितने यात्री हैं?", या "अगला स्टॉप कौन सा है?".`;
   }
 
-  return `Driver Assistant online for Bus ${driver?.bus_number || '101'}. You can say: "Who is not coming today?", "What is the passenger headcount?", or "What is the next stop?".`;
+  return `Driver Assistant online for Bus ${bus.bus_number} (${route.name}). You can say: "Who is not coming today?", "What is the passenger headcount?", or "What is the next stop?".`;
 };

@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS attendance (
     trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
     student_id INTEGER NOT NULL REFERENCES students(user_id) ON DELETE CASCADE,
     status TEXT CHECK(status IN ('present', 'absent', 'not_coming')) DEFAULT 'absent',
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_trip_student UNIQUE (trip_id, student_id)
 );
 
 -- 11. Wait Requests table (student delays requests)

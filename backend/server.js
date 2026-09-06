@@ -537,15 +537,28 @@ app.post('/api/student/scan-bus-qr', authenticateToken, requireRole('student', '
 
     const normalizedCode = (busQrCode || '').trim().toUpperCase();
     
-    const matchedBus = await db.get(
-      `SELECT * FROM buses 
-       WHERE UPPER(bus_number) = $1 OR UPPER(registration_number) = $2 OR $3 LIKE ('%' || UPPER(bus_number) || '%')`,
-      [normalizedCode, normalizedCode, normalizedCode]
-    ) || await db.get('SELECT * FROM buses WHERE id = $1', [student.bus_id || 1]);
+    // Match bus by QR code or student's assigned bus
+    let matchedBus = null;
+    if (normalizedCode) {
+      matchedBus = await db.get(
+        `SELECT * FROM buses 
+         WHERE UPPER(bus_number) = $1 OR UPPER(registration_number) = $2 OR $3 LIKE ('%' || UPPER(bus_number) || '%')`,
+        [normalizedCode, normalizedCode, normalizedCode]
+      );
+    }
 
-    const busNumber = matchedBus ? matchedBus.bus_number : (student.bus_number || 'BUS-101');
-    const busId = matchedBus ? matchedBus.id : (student.bus_id || 1);
+    if (!matchedBus && student.bus_id) {
+      matchedBus = await db.get('SELECT * FROM buses WHERE id = $1', [student.bus_id]);
+    }
 
+    if (!matchedBus) {
+      return res.status(400).json({ success: false, message: 'Invalid bus QR code and no bus is assigned to your account.' });
+    }
+
+    const busNumber = matchedBus.bus_number;
+    const busId = matchedBus.id;
+
+    // Find active trip for this bus or student's route
     let activeTrip = await db.get(
       `SELECT * FROM trips 
        WHERE bus_id = $1 AND status IN ('active', 'started', 'en_route') 
@@ -553,30 +566,53 @@ app.post('/api/student/scan-bus-qr', authenticateToken, requireRole('student', '
       [busId]
     );
 
-    if (!activeTrip) {
+    if (!activeTrip && student.route_id) {
       activeTrip = await db.get(
         `SELECT * FROM trips 
          WHERE route_id = $1 AND status IN ('active', 'started', 'en_route') 
          ORDER BY created_at DESC LIMIT 1`,
-        [student.route_id || 1]
+        [student.route_id]
       );
     }
 
-    const tripId = activeTrip ? activeTrip.id : 1;
+    if (!activeTrip) {
+      activeTrip = await db.get(
+        `SELECT * FROM trips 
+         WHERE bus_id = $1 AND status = 'scheduled' 
+         ORDER BY created_at DESC LIMIT 1`,
+        [busId]
+      );
+    }
+
+    if (!activeTrip) {
+      const busDriver = await db.get('SELECT user_id FROM drivers WHERE active_bus_id = $1 LIMIT 1', [busId]);
+      const targetRouteId = student.route_id || (await db.get('SELECT id FROM routes LIMIT 1'))?.id;
+      
+      if (busDriver && targetRouteId) {
+        const newTrip = await db.run(
+          'INSERT INTO trips (bus_id, route_id, driver_id, status) VALUES ($1, $2, $3, \'active\') RETURNING id',
+          [busId, targetRouteId, busDriver.user_id]
+        );
+        activeTrip = await db.get('SELECT * FROM trips WHERE id = $1', [newTrip.id]);
+      }
+    }
+
+    if (!activeTrip) {
+      return res.status(404).json({ success: false, message: `No active or scheduled trip found for Bus ${busNumber}.` });
+    }
+
+    const tripId = activeTrip.id;
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Multi-table write inside a single transaction
+    // Multi-table write inside a single transaction with ON CONFLICT deduplication
     await db.withTransaction(async (tx) => {
-      const attRecord = await tx.get(
-        'SELECT id FROM attendance WHERE trip_id = $1 AND student_id = $2',
+      await tx.run(
+        `INSERT INTO attendance (trip_id, student_id, status) 
+         VALUES ($1, $2, 'present')
+         ON CONFLICT (trip_id, student_id) 
+         DO UPDATE SET status = 'present', timestamp = CURRENT_TIMESTAMP`,
         [tripId, student.user_id]
       );
-
-      if (attRecord) {
-        await tx.run('UPDATE attendance SET status = \'present\' WHERE id = $1', [attRecord.id]);
-      } else {
-        await tx.run('INSERT INTO attendance (trip_id, student_id, status) VALUES ($1, $2, \'present\')', [tripId, student.user_id]);
-      }
 
       const today = new Date().toISOString().split('T')[0];
       await tx.run('DELETE FROM not_coming WHERE student_id = $1 AND date = $2', [student.user_id, today]);
@@ -652,6 +688,11 @@ app.get('/api/student/trip/:id', authenticateToken, requireRole('student', 'admi
 // Driver details and trip control
 app.get('/api/driver/trip/:driverId', authenticateToken, requireRole('driver', 'admin'), verifyResourceOwnership('driver'), async (req, res, next) => {
   try {
+    const resolved = await db.resolveDriverRoute(req.params.driverId);
+    if (resolved.error || !resolved.bus || !resolved.route) {
+      return res.status(404).json({ error: resolved.error || 'No route assigned for this bus yet — contact your admin.' });
+    }
+
     let trip = await db.get(
       'SELECT t.*, r.name as route_name, b.bus_number FROM trips t JOIN routes r ON t.route_id = r.id JOIN buses b ON t.bus_id = b.id WHERE t.driver_id = $1 AND t.status = \'active\'',
       [req.params.driverId]
@@ -665,26 +706,9 @@ app.get('/api/driver/trip/:driverId', authenticateToken, requireRole('driver', '
     }
 
     if (!trip) {
-      const driver = await db.get('SELECT * FROM drivers WHERE user_id = $1', [req.params.driverId]);
-      if (!driver || !driver.active_bus_id) {
-        return res.status(404).json({ error: 'No bus assigned to this driver yet — contact your admin.' });
-      }
-
-      // Check if a route exists for this bus or find first available route
-      const studentWithRoute = await db.get('SELECT route_id FROM students WHERE bus_id = $1 AND route_id IS NOT NULL LIMIT 1', [driver.active_bus_id]);
-      let routeId = studentWithRoute?.route_id;
-      if (!routeId) {
-        const firstRoute = await db.get('SELECT id FROM routes LIMIT 1');
-        routeId = firstRoute?.id;
-      }
-
-      if (!routeId) {
-        return res.status(404).json({ error: 'No route available for the assigned bus. Please add a route in admin dashboard.' });
-      }
-
       const newTripRes = await db.run(
         'INSERT INTO trips (bus_id, route_id, driver_id, status) VALUES ($1, $2, $3, \'scheduled\') RETURNING id',
-        [driver.active_bus_id, routeId, req.params.driverId]
+        [resolved.bus.id, resolved.route.id, req.params.driverId]
       );
 
       trip = await db.get(
@@ -733,7 +757,7 @@ app.post('/api/driver/trip/action', authenticateToken, requireRole('driver', 'ad
             const notComing = await tx.get('SELECT id FROM not_coming WHERE student_id = $1 AND date = $2', [st.user_id, today]);
             const status = notComing ? 'not_coming' : 'absent';
             await tx.run(
-              'INSERT INTO attendance (trip_id, student_id, status) VALUES ($1, $2, $3)',
+              'INSERT INTO attendance (trip_id, student_id, status) VALUES ($1, $2, $3) ON CONFLICT (trip_id, student_id) DO NOTHING',
               [tripId, st.user_id, status]
             );
           }
@@ -985,8 +1009,8 @@ app.get('/api/admin/attendance', authenticateToken, requireRole('admin'), async 
     const params = [];
 
     if (date) {
-      params.push(`${date}%`);
-      query += ` AND a.timestamp::text LIKE $${params.length}`;
+      params.push(date);
+      query += ` AND (a.timestamp::text LIKE ($${params.length} || '%') OR a.timestamp::date = $${params.length}::date)`;
     }
     if (routeId) {
       params.push(parseInt(routeId, 10));
@@ -1075,8 +1099,8 @@ app.post('/api/admin/verify-scan', authenticateToken, requireRole('admin'), asyn
     }
 
     const trip = await db.get(
-      `SELECT t.id, t.status FROM trips t
-       WHERE t.bus_id = $1 AND t.status IN ('started', 'en_route', 'active')
+      `SELECT t.* FROM trips t 
+       WHERE t.bus_id = $1 AND t.status = 'active' 
        ORDER BY t.created_at DESC LIMIT 1`,
       [student.bus_id]
     );
@@ -1091,16 +1115,13 @@ app.post('/api/admin/verify-scan', authenticateToken, requireRole('admin'), asyn
     }
 
     await db.withTransaction(async (tx) => {
-      const attRecord = await tx.get(
-        'SELECT id FROM attendance WHERE trip_id = $1 AND student_id = $2',
+      await tx.run(
+        `INSERT INTO attendance (trip_id, student_id, status)
+         VALUES ($1, $2, 'present')
+         ON CONFLICT (trip_id, student_id)
+         DO UPDATE SET status = 'present', timestamp = CURRENT_TIMESTAMP`,
         [trip.id, student.user_id]
       );
-
-      if (attRecord) {
-        await tx.run('UPDATE attendance SET status = \'present\' WHERE id = $1', [attRecord.id]);
-      } else {
-        await tx.run('INSERT INTO attendance (trip_id, student_id, status) VALUES ($1, $2, \'present\')', [trip.id, student.user_id]);
-      }
     });
 
     broadcast({

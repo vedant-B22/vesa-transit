@@ -122,6 +122,19 @@ export const initDatabase = async () => {
     await pool.query(schemaSql);
     console.log('PostgreSQL database schema initialized.');
 
+    // 1b. Migration-safe cleanup: remove duplicate attendance rows per (trip_id, student_id), keeping earliest
+    try {
+      await pool.query(`
+        DELETE FROM attendance a USING attendance b
+        WHERE a.id > b.id AND a.trip_id = b.trip_id AND a.student_id = b.student_id;
+      `);
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_trip_student ON attendance (trip_id, student_id);
+      `);
+    } catch (migErr) {
+      console.warn('Attendance unique index migration note:', migErr.message);
+    }
+
     // 2. Guard demo seeding with SEED_DEMO_DATA flag
     if (process.env.SEED_DEMO_DATA !== 'true') {
       console.log('Demo data seeding disabled (SEED_DEMO_DATA is not set to true). Production mode active.');
@@ -305,6 +318,81 @@ export const initDatabase = async () => {
   }
 };
 
+/**
+ * Resolves a driver's assigned bus and real route strictly from the database relationship:
+ * drivers.active_bus_id -> buses -> (active/recent trips OR students route).
+ * Contains NO hardcoded numeric fallbacks.
+ */
+export const resolveDriverRoute = async (driverId) => {
+  if (!driverId) {
+    return { error: 'driverId is required', driver: null, bus: null, route: null };
+  }
+
+  const driver = await get(
+    `SELECT d.*, u.email, b.bus_number, b.capacity, b.registration_number, b.status as bus_status
+     FROM drivers d
+     JOIN users u ON d.user_id = u.id
+     LEFT JOIN buses b ON d.active_bus_id = b.id
+     WHERE d.user_id = $1`,
+    [driverId]
+  );
+
+  if (!driver) {
+    return { error: 'Driver account not found in database', driver: null, bus: null, route: null };
+  }
+
+  if (!driver.active_bus_id || !driver.bus_number) {
+    return { error: 'No bus assigned to this driver yet — contact your admin', driver, bus: null, route: null };
+  }
+
+  const bus = {
+    id: driver.active_bus_id,
+    bus_number: driver.bus_number,
+    capacity: driver.capacity,
+    registration_number: driver.registration_number,
+    status: driver.bus_status
+  };
+
+  // 1. Check if there is an active or scheduled trip for this driver/bus
+  const trip = await get(
+    `SELECT t.route_id, r.name as route_name, r.start_location, r.end_location, r.distance_km, r.estimated_duration_mins
+     FROM trips t
+     JOIN routes r ON t.route_id = r.id
+     WHERE (t.driver_id = $1 OR t.bus_id = $2)
+     ORDER BY CASE WHEN t.status = 'active' THEN 1 WHEN t.status = 'scheduled' THEN 2 ELSE 3 END, t.id DESC
+     LIMIT 1`,
+    [driverId, driver.active_bus_id]
+  );
+
+  if (trip && trip.route_id) {
+    const route = {
+      id: trip.route_id,
+      name: trip.route_name,
+      start_location: trip.start_location,
+      end_location: trip.end_location,
+      distance_km: trip.distance_km,
+      estimated_duration_mins: trip.estimated_duration_mins
+    };
+    return { error: null, driver, bus, route };
+  }
+
+  // 2. Check if students assigned to this bus have a designated route
+  const studentRoute = await get(
+    `SELECT r.id, r.name, r.start_location, r.end_location, r.distance_km, r.estimated_duration_mins
+     FROM students s
+     JOIN routes r ON s.route_id = r.id
+     WHERE s.bus_id = $1 AND s.route_id IS NOT NULL
+     LIMIT 1`,
+    [driver.active_bus_id]
+  );
+
+  if (studentRoute && studentRoute.id) {
+    return { error: null, driver, bus, route: studentRoute };
+  }
+
+  return { error: 'No route assigned for this bus yet — contact your admin', driver, bus, route: null };
+};
+
 export default {
   pool,
   query,
@@ -312,5 +400,6 @@ export default {
   run,
   exec,
   withTransaction,
-  initDatabase
+  initDatabase,
+  resolveDriverRoute
 };

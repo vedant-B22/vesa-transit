@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  BarChart2, Users, Truck, Route as RouteIcon, AlertTriangle, ShieldAlert, 
+  BarChart2, Users, Truck, Route as RouteIcon, AlertTriangle, ShieldAlert, Shield,
   Plus, Edit, Trash2, Upload, Search, Bell, Download, Check, Wrench,
   Camera, QrCode, MapPin, X, Eye, Phone, Mail, FileText, CheckCircle, Navigation,
   UserCheck, Calendar, Filter, RefreshCw
@@ -1453,12 +1453,20 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
                           </td>
                           <td>
                             {record.recorded_at ? (
-                              <div>
-                                <div>{new Date(record.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                                  {new Date(record.recorded_at).toLocaleDateString()}
-                                </span>
-                              </div>
+                              (() => {
+                                const d = new Date(record.recorded_at);
+                                const isValid = !isNaN(d.getTime());
+                                return isValid ? (
+                                  <div>
+                                    <div style={{ fontWeight: '600' }}>{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                      {d.toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div>{String(record.recorded_at)}</div>
+                                );
+                              })()
                             ) : (
                               <span style={{ color: 'var(--text-muted)' }}>-</span>
                             )}
