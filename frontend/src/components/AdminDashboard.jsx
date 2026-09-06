@@ -912,8 +912,8 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
       <div style={{ width: '270px', background: 'var(--bg-surface-solid)', borderRight: '1px solid var(--border-color)', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
         <div>
           <div className="brand-title">
-            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'var(--accent-cyan-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(6,182,212,0.3)' }}>
-              <Truck size={20} color="var(--accent-cyan)" />
+            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'var(--accent-cyan-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(6,182,212,0.3)', overflow: 'hidden' }}>
+              <img src="/icons/icon-192.png" alt="VESA Logo" style={{ width: '28px', height: '28px', objectFit: 'contain' }} />
             </div>
             <span>VESA Transit</span>
           </div>
@@ -2322,7 +2322,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
               <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
                 <div className="glass-card" style={{ width: '400px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center', padding: '28px', border: '2px solid var(--border-color)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)' }}>
-                    <Truck size={20} />
+                    <img src="/icons/icon-192.png" alt="VESA" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
                     <span style={{ fontSize: '13px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
                       VESA Transit Bus Scanner Sticker
                     </span>

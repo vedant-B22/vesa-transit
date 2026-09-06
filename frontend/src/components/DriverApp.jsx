@@ -522,7 +522,7 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
         <div className="phone-screen" style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
           <div className="emulator-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Navigation size={15} color="var(--accent-cyan)" />
+              <img src="/icons/icon-192.png" alt="VESA" style={{ width: '20px', height: '20px', borderRadius: '4px', objectFit: 'contain' }} />
               <span style={{ fontSize: '13px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>VESA Driver</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -659,7 +659,7 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       {/* Driver Header */}
       <div className="emulator-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Navigation size={15} color="var(--accent-cyan)" />
+          <img src="/icons/icon-192.png" alt="VESA" style={{ width: '20px', height: '20px', borderRadius: '4px', objectFit: 'contain' }} />
           <span style={{ fontSize: '13px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>VESA Driver</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

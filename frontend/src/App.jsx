@@ -124,17 +124,23 @@ export default function App() {
         {/* Brand Header */}
         <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
           <div style={{ 
-            width: '60px', 
-            height: '60px', 
+            width: '64px', 
+            height: '64px', 
             borderRadius: '18px', 
             background: 'var(--accent-cyan-light)', 
             border: '1px solid rgba(6,182,212,0.3)', 
             display: 'flex', 
             justifyContent: 'center', 
             alignItems: 'center', 
-            boxShadow: 'var(--shadow-glow)' 
+            boxShadow: 'var(--shadow-glow)',
+            overflow: 'hidden',
+            padding: '4px'
           }}>
-            <Truck size={32} color="var(--accent-cyan)" />
+            <img 
+              src="/icons/icon-192.png" 
+              alt="VESA Transit Logo" 
+              style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '12px' }} 
+            />
           </div>
           <div>
             <h1 className="brand-title" style={{ fontSize: '30px', justifyContent: 'center', marginBottom: '4px' }}>

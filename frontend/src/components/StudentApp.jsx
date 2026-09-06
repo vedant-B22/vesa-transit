@@ -670,6 +670,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
       {/* Emulator UI Top header */}
       <div className="emulator-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <img src="/icons/icon-192.png" alt="VESA" style={{ width: '20px', height: '20px', borderRadius: '4px', objectFit: 'contain' }} />
           <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isTripActive ? 'var(--accent-emerald)' : 'var(--text-muted)' }}></div>
           <span style={{ fontSize: '13px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>VESA Student</span>
         </div>
