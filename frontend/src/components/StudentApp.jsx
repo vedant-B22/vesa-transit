@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import QRCodeImage from './LocalQRCode';
 
 // Leaflet custom styled marker icons using DivIcon for zero asset errors and a high-tech pulse look
 const createStopIcon = (num, isActive) => L.divIcon({
@@ -1021,10 +1022,11 @@ export default function StudentApp({ userId, token, onLogout }) {
               </span>
               <div className="qr-pass-container">
                 <div className="qr-box" style={{ background: '#fff', padding: '10px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-                  <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${profile.qr_code_pass || 'QR_PASS_DEFAULT'}`} 
+                  <QRCodeImage 
+                    value={profile.qr_code_pass || 'QR_PASS_DEFAULT'} 
+                    size={140} 
                     alt="Student ID QR" 
-                    style={{ display: 'block', width: '140px', height: '140px', zIndex: 1 }} 
+                    style={{ zIndex: 1 }} 
                   />
                   <div className="scan-line" style={{ zIndex: 2 }}></div>
                 </div>

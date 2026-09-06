@@ -1,63 +1,77 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Play, CheckCircle, Navigation, Users, AlertOctagon, 
+  Play, CheckCircle, Navigation, Users, AlertOctagon, AlertTriangle,
   CornerUpRight, Check, X, ShieldAlert, QrCode, Bell, UserCheck, UserX, Clock, Sparkles,
-  Mic, MicOff, Volume2, VolumeX, Bot, Radio, MessageSquare
+  Mic, MicOff, Volume2, VolumeX, Bot, Radio, MessageSquare, MapPin
 } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
+import QRCodeImage from './LocalQRCode';
 
 const activeStopIcon = L.divIcon({
   className: 'driver-stop-marker',
-  html: `<div style="width: 14px; height: 14px; background: #ef4444; border: 2px solid #fff; border-radius: 50%;"></div>`,
+  html: `<div style="width: 14px; height: 14px; background: #ef4444; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 6px rgba(239,68,68,0.8);"></div>`,
   iconSize: [14, 14]
 });
 
-// Interpolated coordinate paths for Route A simulation (Majestic Hub -> VESA Gate)
-const routeAPath = [
-  [12.9716, 77.5946], // Majestic Hub (Stop 1)
-  [12.9780, 77.5900], [12.9850, 77.5850], [12.9910, 77.5780],
-  [12.9982, 77.5714], // Malleswaram 8th Cross (Stop 2)
-  [13.0040, 77.5670], [13.0100, 77.5620], [13.0160, 77.5560],
-  [13.0234, 77.5501], // Yeshwanthpur Junction (Stop 3)
-  [13.0320, 77.5550], [13.0400, 77.5600], [13.0500, 77.5680],
-  [13.0601, 77.5750]  // VESA Campus Gate (Stop 4)
-];
-
-// Helper to find closest stop index
-const stopCoordsIndices = {
-  1: 0,  // Majestic
-  2: 4,  // Malleswaram
-  3: 8,  // Yeshwanthpur
-  4: 12  // Campus Gate
-};
+const driverBusIcon = L.divIcon({
+  className: 'driver-bus-marker',
+  html: `<div style="
+    width: 28px;
+    height: 28px;
+    background: #06b6d4;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 12px rgba(6,182,212,0.8);
+  ">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5">
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <circle cx="7" cy="20" r="2" />
+      <circle cx="17" cy="20" r="2" />
+    </svg>
+  </div>`,
+  iconSize: [28, 28]
+});
 
 export default function DriverApp({ userId, token, onLogout }) {
   const [trip, setTrip] = useState(null);
   const [stops, setStops] = useState([]);
   const [attendance, setAttendance] = useState([]);
-  const [activeStopIndex, setActiveStopIndex] = useState(0); // Sequence of stop driver is heading to or arrived at
+  const [activeStopIndex, setActiveStopIndex] = useState(0);
   const [tripStatus, setTripStatus] = useState('scheduled'); // 'scheduled', 'active', 'completed'
   
   // Real-time alerts
-  const [waitAlert, setWaitAlert] = useState(null); // Incoming wait request alert object
-  const [sosAlert, setSosAlert] = useState(null); // Active SOS alert details
-  const [driverToast, setDriverToast] = useState(null); // Real-time notification banners
-  const [showQrStickerModal, setShowQrStickerModal] = useState(false); // Bus QR Sticker modal
+  const [waitAlert, setWaitAlert] = useState(null);
+  const [sosAlert, setSosAlert] = useState(null);
+  const [driverToast, setDriverToast] = useState(null);
+  const [showQrStickerModal, setShowQrStickerModal] = useState(false);
+
+  // Real GPS Geolocation States
+  const [currentLocation, setCurrentLocation] = useState({
+    latitude: null,
+    longitude: null,
+    speed: 0,
+    accuracy: null
+  });
+  const [geoError, setGeoError] = useState(null);
+  const [isGpsActive, setIsGpsActive] = useState(false);
+  const watchIdRef = useRef(null);
+  const lastGpsSentTimeRef = useRef(0);
+  const tripRef = useRef(trip);
+  tripRef.current = trip;
 
   // Voice Assistant States
-  const [voiceLang, setVoiceLang] = useState('en'); // 'en', 'hi', 'mr'
+  const [voiceLang, setVoiceLang] = useState('en');
   const [isListening, setIsListening] = useState(false);
   const [voiceQuery, setVoiceQuery] = useState('');
-  const [aiVoiceResponse, setAiVoiceResponse] = useState("Hi David! I'm your transit copilot. Tap the mic or ask a quick question hands-free.");
+  const [aiVoiceResponse, setAiVoiceResponse] = useState("Hi! I'm your transit copilot. Tap the mic or ask a quick question hands-free.");
   const [isVoiceLoading, setIsVoiceLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceMuted, setVoiceMuted] = useState(false);
   const recognitionRef = useRef(null);
-  
-  // GPS simulation tracking
-  const [simStep, setSimStep] = useState(0);
-  const simTimer = useRef(null);
   const ws = useRef(null);
 
   const isDev = window.location.port === '3000' || window.location.port === '3001' || window.location.port === '5173';
@@ -90,7 +104,7 @@ export default function DriverApp({ userId, token, onLogout }) {
     }, 6000);
   };
 
-  // Speech Synthesis Output (Supports Marathi mr-IN, Hindi hi-IN, English en-IN)
+  // Speech Synthesis Output
   const speakText = (text, langCode = voiceLang) => {
     if (voiceMuted || !('speechSynthesis' in window)) return;
     try {
@@ -143,7 +157,7 @@ export default function DriverApp({ userId, token, onLogout }) {
     }
   };
 
-  // Microphone Speech Recognition Toggle (Multilingual)
+  // Microphone Speech Recognition Toggle
   const toggleListen = () => {
     if (isListening) {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -159,7 +173,6 @@ export default function DriverApp({ userId, token, onLogout }) {
 
     try {
       const recognition = new SpeechRecognition();
-      // Set recognition locale based on chosen language
       recognition.lang = voiceLang === 'mr' ? 'mr-IN' : voiceLang === 'hi' ? 'hi-IN' : 'en-IN';
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
@@ -191,13 +204,91 @@ export default function DriverApp({ userId, token, onLogout }) {
     }
   };
 
+  // Real GPS Geolocation Watcher
+  const startRealGpsTracking = (tripId) => {
+    if (!('geolocation' in navigator)) {
+      setGeoError('GPS / Geolocation hardware is not supported on this device/browser.');
+      return;
+    }
+
+    setGeoError(null);
+    setIsGpsActive(true);
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 3000
+    };
+
+    const handleSuccess = (position) => {
+      const { latitude, longitude, speed, accuracy } = position.coords;
+      const currentSpeedKmh = speed !== null && speed !== undefined ? Math.max(0, speed * 3.6) : 0;
+
+      setCurrentLocation({
+        latitude,
+        longitude,
+        speed: currentSpeedKmh,
+        accuracy
+      });
+      setGeoError(null);
+
+      // Throttled WebSocket broadcast (send every 5 seconds)
+      const now = Date.now();
+      if (now - lastGpsSentTimeRef.current >= 5000) {
+        lastGpsSentTimeRef.current = now;
+        const currentTripId = tripId || (tripRef.current ? tripRef.current.id : null);
+        if (currentTripId && ws.current && ws.current.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({
+            type: 'gps_update',
+            tripId: currentTripId,
+            latitude,
+            longitude,
+            speed: currentSpeedKmh
+          }));
+        }
+      }
+    };
+
+    const handleError = (error) => {
+      let errorMsg = 'Failed to acquire GPS location.';
+      switch (error.code) {
+        case error.PERMISSION_DENIED:
+          errorMsg = 'GPS Location Permission Denied. Please enable location permissions in your browser or device settings to broadcast live bus position.';
+          break;
+        case error.POSITION_UNAVAILABLE:
+          errorMsg = 'GPS signal unavailable. Please ensure location services are enabled on your device.';
+          break;
+        case error.TIMEOUT:
+          errorMsg = 'GPS location request timed out. Retrying...';
+          break;
+        default:
+          errorMsg = error.message || 'GPS location error.';
+      }
+      setGeoError(errorMsg);
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, options);
+  };
+
+  const stopRealGpsTracking = () => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setIsGpsActive(false);
+  };
+
   useEffect(() => {
     fetchTrip();
     initWebSocket();
 
     return () => {
+      stopRealGpsTracking();
       if (ws.current) ws.current.close();
-      if (simTimer.current) clearInterval(simTimer.current);
     };
   }, [userId]);
 
@@ -211,7 +302,7 @@ export default function DriverApp({ userId, token, onLogout }) {
         setTripStatus(data.trip.status);
         if (data.trip.status === 'active') {
           fetchAttendance(data.trip.id);
-          resumeSimulation(data.trip);
+          startRealGpsTracking(data.trip.id);
         }
       }
     } catch (e) {
@@ -233,20 +324,18 @@ export default function DriverApp({ userId, token, onLogout }) {
     ws.current = new WebSocket(WS_BASE);
 
     ws.current.onopen = () => {
-      console.log('Driver socket opened. Registering with JWT...');
       ws.current.send(JSON.stringify({
         type: 'register',
         token,
         role: 'driver',
         userId: userId,
-        routeId: 1, // Route A link
-        busId: 1 // BUS-101
+        routeId: trip ? trip.route_id : 1,
+        busId: trip ? trip.bus_id : 1
       }));
     };
 
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      console.log('Driver received WS message:', data);
 
       if (data.type === 'wait_request_alert' && data.driverId === userId) {
         setWaitAlert(data);
@@ -282,58 +371,11 @@ export default function DriverApp({ userId, token, onLogout }) {
     };
   };
 
-  // Run or resume trip simulation increments
-  const resumeSimulation = (activeTrip) => {
-    if (simTimer.current) clearInterval(simTimer.current);
-    
-    // Attempt to guess current sim index from coordinates
-    let index = 0;
-    if (activeTrip.current_lat) {
-      const distanceDiffs = routeAPath.map(coord => 
-        Math.hypot(coord[0] - activeTrip.current_lat, coord[1] - activeTrip.current_lng)
-      );
-      index = distanceDiffs.indexOf(Math.min(...distanceDiffs));
-    }
-    setSimStep(index);
-    startGPSTicking(activeTrip.id, index);
-  };
-
-  const startGPSTicking = (tripId, startIndex) => {
-    let index = startIndex;
-    
-    simTimer.current = setInterval(() => {
-      if (index >= routeAPath.length) {
-        clearInterval(simTimer.current);
-        return;
-      }
-
-      const coord = routeAPath[index];
-      const nextLat = coord[0];
-      const nextLng = coord[1];
-      
-      // Calculate speed
-      const speed = index === 0 || index === routeAPath.length - 1 ? 0 : 35 + Math.random() * 15;
-
-      // Send to server over socket
-      if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-        ws.current.send(JSON.stringify({
-          type: 'gps_update',
-          tripId,
-          latitude: nextLat,
-          longitude: nextLng,
-          speed: speed
-        }));
-      }
-
-      setSimStep(index);
-      index++;
-    }, 4000); // Send coordinates updates every 4 seconds
-  };
-
   const handleStartTrip = async () => {
     if (!trip) return;
-    const startCoord = routeAPath[0];
     const firstStop = stops[0]?.id || 1;
+    const lat = currentLocation.latitude || stops[0]?.latitude || 12.9716;
+    const lng = currentLocation.longitude || stops[0]?.longitude || 77.5946;
 
     try {
       const res = await authFetch(`${API_BASE}/driver/trip/action`, {
@@ -342,16 +384,15 @@ export default function DriverApp({ userId, token, onLogout }) {
           tripId: trip.id,
           action: 'start',
           stopId: firstStop,
-          lat: startCoord[0],
-          lng: startCoord[1]
+          lat,
+          lng
         })
       });
       if (res.ok) {
         setTripStatus('active');
         setActiveStopIndex(0);
-        setSimStep(0);
         fetchAttendance(trip.id);
-        startGPSTicking(trip.id, 0);
+        startRealGpsTracking(trip.id);
       }
     } catch (e) {
       console.error(e);
@@ -361,8 +402,8 @@ export default function DriverApp({ userId, token, onLogout }) {
   const handleReachStop = async () => {
     if (!trip || activeStopIndex >= stops.length) return;
     const stop = stops[activeStopIndex];
-    const indexOnPath = stopCoordsIndices[stop.sequence_order] || simStep;
-    const stopCoord = routeAPath[indexOnPath];
+    const lat = currentLocation.latitude || stop.latitude;
+    const lng = currentLocation.longitude || stop.longitude;
 
     try {
       const res = await authFetch(`${API_BASE}/driver/trip/action`, {
@@ -371,8 +412,8 @@ export default function DriverApp({ userId, token, onLogout }) {
           tripId: trip.id,
           action: 'reach_stop',
           stopId: stop.id,
-          lat: stopCoord[0],
-          lng: stopCoord[1]
+          lat,
+          lng
         })
       });
       if (res.ok) {
@@ -387,8 +428,8 @@ export default function DriverApp({ userId, token, onLogout }) {
   const handleLeaveStop = async () => {
     if (!trip || activeStopIndex >= stops.length) return;
     const stop = stops[activeStopIndex];
-    const indexOnPath = stopCoordsIndices[stop.sequence_order] || simStep;
-    const stopCoord = routeAPath[indexOnPath];
+    const lat = currentLocation.latitude || stop.latitude;
+    const lng = currentLocation.longitude || stop.longitude;
 
     try {
       const res = await authFetch(`${API_BASE}/driver/trip/action`, {
@@ -397,8 +438,8 @@ export default function DriverApp({ userId, token, onLogout }) {
           tripId: trip.id,
           action: 'leave_stop',
           stopId: stop.id,
-          lat: stopCoord[0],
-          lng: stopCoord[1]
+          lat,
+          lng
         })
       });
       if (res.ok) {
@@ -411,7 +452,9 @@ export default function DriverApp({ userId, token, onLogout }) {
 
   const handleEndTrip = async () => {
     if (!trip) return;
-    const endCoord = routeAPath[routeAPath.length - 1];
+    const lastStop = stops[stops.length - 1];
+    const lat = currentLocation.latitude || lastStop?.latitude || 12.9716;
+    const lng = currentLocation.longitude || lastStop?.longitude || 77.5946;
 
     try {
       const res = await authFetch(`${API_BASE}/driver/trip/action`, {
@@ -419,13 +462,13 @@ export default function DriverApp({ userId, token, onLogout }) {
         body: JSON.stringify({
           tripId: trip.id,
           action: 'end',
-          lat: endCoord[0],
-          lng: endCoord[1]
+          lat,
+          lng
         })
       });
       if (res.ok) {
         setTripStatus('completed');
-        if (simTimer.current) clearInterval(simTimer.current);
+        stopRealGpsTracking();
         alert('Trip ended successfully. Shift completed.');
       }
     } catch (e) {
@@ -476,9 +519,10 @@ export default function DriverApp({ userId, token, onLogout }) {
   }
 
   const activeStop = stops[activeStopIndex];
-  const busCoordinates = routeAPath[simStep] || routeAPath[0];
+  const busCoordinates = currentLocation.latitude && currentLocation.longitude
+    ? [currentLocation.latitude, currentLocation.longitude]
+    : (stops[0] ? [stops[0].latitude, stops[0].longitude] : [12.9716, 77.5946]);
 
-  // Calculate live passenger breakdown
   const boardedList = attendance.filter(st => (st.effective_status || st.status) === 'present');
   const notComingList = attendance.filter(st => (st.effective_status || st.status) === 'not_coming');
   const awaitingList = attendance.filter(st => (st.effective_status || st.status) === 'absent');
@@ -496,7 +540,7 @@ export default function DriverApp({ userId, token, onLogout }) {
         </div>
       )}
 
-      {/* Bus QR Sticker Display Modal (for students to scan from driver screen if needed) */}
+      {/* Bus QR Sticker Display Modal (Generated locally without third-party requests) */}
       {showQrStickerModal && (
         <div className="sos-overlay" style={{ background: 'rgba(10,14,23,0.95)', zIndex: 99999 }}>
           <div className="glass-card" style={{ maxWidth: '300px', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', padding: '20px', textAlign: 'center' }}>
@@ -504,10 +548,10 @@ export default function DriverApp({ userId, token, onLogout }) {
               Bus QR Attendance Sticker
             </span>
             <div className="qr-box" style={{ background: '#fff', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img 
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=VESA_BUS_${trip.bus_number || '101'}`} 
-                alt="Bus QR Sticker" 
-                style={{ width: '160px', height: '160px', display: 'block' }} 
+              <QRCodeImage 
+                value={`VESA_BUS_${trip.bus_number || '101'}`} 
+                size={160} 
+                alt={`Bus ${trip.bus_number} QR Code`} 
               />
             </div>
             <div>
@@ -587,6 +631,29 @@ export default function DriverApp({ userId, token, onLogout }) {
       {/* Content Area */}
       <div className="emulator-content">
         
+        {/* Real GPS Status Banner or Warning */}
+        {geoError && (
+          <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid var(--accent-rose)', color: '#fff', padding: '10px 14px', borderRadius: '8px', fontSize: '11px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+            <AlertOctagon size={16} color="var(--accent-rose)" style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <div style={{ fontWeight: '700', color: 'var(--accent-rose)' }}>GPS Live Tracking Alert</div>
+              <div>{geoError}</div>
+            </div>
+          </div>
+        )}
+
+        {isGpsActive && currentLocation.latitude && (
+          <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: 'var(--accent-emerald)', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-emerald)', display: 'inline-block', boxShadow: '0 0 6px var(--accent-emerald)' }}></span>
+              Live GPS Transmitting
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              {currentLocation.latitude.toFixed(4)}, {currentLocation.longitude.toFixed(4)} ({Math.round(currentLocation.speed)} km/h)
+            </span>
+          </div>
+        )}
+
         {/* Route Details Card */}
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div>
@@ -671,7 +738,7 @@ export default function DriverApp({ userId, token, onLogout }) {
                         ? 'नमस्कार! मी तुमचा ड्रायव्हर व्हॉईस असिस्टंट आहे. बोला किंवा खालील बटण दाबा.'
                         : l.code === 'hi'
                         ? 'नमस्ते! मैं आपका ड्राइवर वॉइस असिस्टेंट हूँ। बोलें या नीचे दिए गए बटन दबाएं।'
-                        : "Hi David! I'm your transit copilot. Tap the mic or ask a quick question hands-free.";
+                        : "Hi! I'm your transit copilot. Tap the mic or ask a quick question hands-free.";
                       setAiVoiceResponse(welcome);
                       speakText(welcome, l.code);
                     }}
@@ -761,7 +828,7 @@ export default function DriverApp({ userId, token, onLogout }) {
             </button>
           </div>
 
-          {/* Quick Voice Command Chips (Localized) */}
+          {/* Quick Voice Command Chips */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
             {(voiceLang === 'mr' ? [
               { label: '👥 आज कोण येत नाही?', query: 'आज कोण येत नाही?' },
@@ -799,9 +866,9 @@ export default function DriverApp({ userId, token, onLogout }) {
           </div>
         </div>
 
-        {/* GPS Tracking Map Emulator */}
+        {/* Real Live GPS Tracking Map */}
         {tripStatus === 'active' && (
-          <div className="glass-card" style={{ padding: '8px', height: '200px' }}>
+          <div className="glass-card" style={{ padding: '8px', height: '220px' }}>
             <MapContainer 
               center={busCoordinates} 
               zoom={13} 
@@ -811,9 +878,16 @@ export default function DriverApp({ userId, token, onLogout }) {
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               />
-              <Marker position={busCoordinates} icon={activeStopIcon}>
-                <Popup>Bus {trip.bus_number}</Popup>
-              </Marker>
+              {stops.map(st => (
+                <Marker key={st.id} position={[st.latitude, st.longitude]} icon={activeStopIcon}>
+                  <Popup>Stop #{st.sequence_order}: {st.name}</Popup>
+                </Marker>
+              ))}
+              {currentLocation.latitude && currentLocation.longitude && (
+                <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={driverBusIcon}>
+                  <Popup>Your Bus (Speed: {Math.round(currentLocation.speed)} km/h)</Popup>
+                </Marker>
+              )}
             </MapContainer>
           </div>
         )}

@@ -769,7 +769,19 @@ app.get('/api/admin/dashboard', authenticateToken, requireRole('admin'), async (
     const totalStudents = await db.get('SELECT COUNT(*) as count FROM students');
     const totalDrivers = await db.get('SELECT COUNT(*) as count FROM drivers');
     const totalBuses = await db.get('SELECT COUNT(*) as count FROM buses');
-    const pendingFeesSum = await db.get('SELECT SUM(pending_amount) as sum FROM fees');
+    
+    // Compute real dynamic revenue and fee collection statistics
+    const feeStats = await db.get(`
+      SELECT 
+        COALESCE(SUM(total_amount), 0) as total_expected,
+        COALESCE(SUM(paid_amount), 0) as total_paid,
+        COALESCE(SUM(pending_amount), 0) as total_pending
+      FROM fees
+    `);
+    const totalExpected = parseFloat(feeStats?.total_expected || '0');
+    const totalPaid = parseFloat(feeStats?.total_paid || '0');
+    const totalPending = parseFloat(feeStats?.total_pending || '0');
+    const feeCollectionPercentage = totalExpected > 0 ? Number(((totalPaid / totalExpected) * 100).toFixed(1)) : 0;
     
     const delayedTrips = await db.get(
       `SELECT COUNT(*) as count FROM trips t 
@@ -804,7 +816,10 @@ app.get('/api/admin/dashboard', authenticateToken, requireRole('admin'), async (
         totalDrivers: parseInt(totalDrivers?.count || '0', 10),
         totalBuses: parseInt(totalBuses?.count || '0', 10),
         delayedRoutes: parseInt(delayedTrips?.count || '0', 10),
-        pendingFees: parseFloat(pendingFeesSum?.sum || '0')
+        pendingFees: totalPending,
+        totalFeesExpected: totalExpected,
+        totalFeesPaid: totalPaid,
+        feeCollectionPercentage: feeCollectionPercentage
       },
       activeSOS,
       maintenanceRecs,
@@ -812,6 +827,61 @@ app.get('/api/admin/dashboard', authenticateToken, requireRole('admin'), async (
       lostFound,
       analytics
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Student Attendance Query Endpoint
+app.get('/api/admin/attendance', authenticateToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const { date, routeId, busId, status } = req.query;
+    let query = `
+      SELECT 
+        a.id as attendance_id,
+        a.status as attendance_status,
+        a.timestamp as recorded_at,
+        s.user_id as student_id,
+        s.name as student_name,
+        s.roll_number,
+        s.emergency_contact,
+        b.bus_number,
+        b.registration_number,
+        r.name as route_name,
+        st.name as stop_name,
+        t.id as trip_id,
+        t.status as trip_status
+      FROM attendance a
+      JOIN students s ON a.student_id = s.user_id
+      LEFT JOIN trips t ON a.trip_id = t.id
+      LEFT JOIN buses b ON COALESCE(t.bus_id, s.bus_id) = b.id
+      LEFT JOIN routes r ON COALESCE(t.route_id, s.route_id) = r.id
+      LEFT JOIN stops st ON s.pickup_stop_id = st.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (date) {
+      params.push(`${date}%`);
+      query += ` AND a.timestamp::text LIKE $${params.length}`;
+    }
+    if (routeId) {
+      params.push(parseInt(routeId, 10));
+      query += ` AND COALESCE(t.route_id, s.route_id) = $${params.length}`;
+    }
+    if (busId) {
+      params.push(parseInt(busId, 10));
+      query += ` AND COALESCE(t.bus_id, s.bus_id) = $${params.length}`;
+    }
+    if (status) {
+      params.push(status);
+      query += ` AND a.status = $${params.length}`;
+    }
+
+    query += ` ORDER BY a.timestamp DESC, a.id DESC LIMIT 200`;
+
+    const records = await db.query(query, params);
+    res.json(records);
   } catch (err) {
     next(err);
   }

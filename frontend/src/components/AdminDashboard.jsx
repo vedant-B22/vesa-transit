@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   BarChart2, Users, Truck, Route as RouteIcon, AlertTriangle, ShieldAlert, 
   Plus, Edit, Trash2, Upload, Search, Bell, Download, Check, Wrench,
-  Camera, QrCode, MapPin, X, Eye, Phone, Mail, FileText, CheckCircle, Navigation
+  Camera, QrCode, MapPin, X, Eye, Phone, Mail, FileText, CheckCircle, Navigation,
+  UserCheck, Calendar, Filter, RefreshCw
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
+import QRCodeImage from './LocalQRCode';
 
 const adminBusIcon = L.divIcon({
   className: 'admin-bus-marker',
@@ -114,6 +116,14 @@ export default function AdminDashboard({ token, onLogout }) {
 
   // Active trips live tracking coordinates
   const [liveTrips, setLiveTrips] = useState([]);
+
+  // Attendance Management State
+  const [attendanceList, setAttendanceList] = useState([]);
+  const [attendanceFilterDate, setAttendanceFilterDate] = useState('');
+  const [attendanceFilterRoute, setAttendanceFilterRoute] = useState('');
+  const [attendanceFilterBus, setAttendanceFilterBus] = useState('');
+  const [attendanceFilterStatus, setAttendanceFilterStatus] = useState('');
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
 
   // QR Pass Scanner Emulation & Bus Sticker View
   const [selectedBusForSticker, setSelectedBusForSticker] = useState(null);
@@ -279,6 +289,33 @@ export default function AdminDashboard({ token, onLogout }) {
       console.error(e);
     }
   };
+
+  const fetchAttendanceList = async () => {
+    try {
+      setAttendanceLoading(true);
+      const params = new URLSearchParams();
+      if (attendanceFilterDate) params.append('date', attendanceFilterDate);
+      if (attendanceFilterRoute) params.append('routeId', attendanceFilterRoute);
+      if (attendanceFilterBus) params.append('busId', attendanceFilterBus);
+      if (attendanceFilterStatus) params.append('status', attendanceFilterStatus);
+
+      const res = await authFetch(`${API_BASE}/admin/attendance?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok) {
+        setAttendanceList(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      console.error('Error fetching attendance list:', e);
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeMenu === 'attendance') {
+      fetchAttendanceList();
+    }
+  }, [activeMenu, attendanceFilterDate, attendanceFilterRoute, attendanceFilterBus, attendanceFilterStatus]);
 
   const initWebSocket = () => {
     ws.current = new WebSocket(WS_BASE);
@@ -789,6 +826,7 @@ export default function AdminDashboard({ token, onLogout }) {
           {[
             { id: 'dashboard', label: 'Dashboard Control', icon: <BarChart2 size={16} /> },
             { id: 'tracking', label: 'Live Tracking Map', icon: <Navigation size={16} /> },
+            { id: 'attendance', label: 'Student Attendance', icon: <UserCheck size={16} /> },
             { id: 'students', label: 'Students Console', icon: <Users size={16} /> },
             { id: 'drivers', label: 'Drivers Register', icon: <Users size={16} /> },
             { id: 'buses', label: 'Fleet Registry', icon: <Wrench size={16} /> },
@@ -886,12 +924,18 @@ export default function AdminDashboard({ token, onLogout }) {
                   <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '8px' }}>Revenue & Fee Collection</h3>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Overall collection status for this term.</span>
                 </div>
-                <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                  <div style={{ fontSize: '36px', fontWeight: '800', color: 'var(--accent-emerald)' }}>76.4%</div>
+                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <div style={{ fontSize: '36px', fontWeight: '800', color: 'var(--accent-emerald)' }}>
+                    {stats.feeCollectionPercentage !== undefined ? `${stats.feeCollectionPercentage}%` : '0%'}
+                  </div>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Target Collected</span>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '10px', fontSize: '12px' }}>
+                    <div><span style={{ color: 'var(--text-secondary)' }}>Collected: </span><strong style={{ color: 'var(--accent-emerald)' }}>₹{Number(stats.totalFeesPaid || 0).toLocaleString('en-IN')}</strong></div>
+                    <div><span style={{ color: 'var(--text-secondary)' }}>Target: </span><strong style={{ color: 'var(--accent-cyan)' }}>₹{Number(stats.totalFeesExpected || 0).toLocaleString('en-IN')}</strong></div>
+                  </div>
                 </div>
                 <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: '76.4%', height: '100%', background: 'var(--accent-emerald)' }}></div>
+                  <div style={{ width: `${Math.min(100, Math.max(0, stats.feeCollectionPercentage || 0))}%`, height: '100%', background: 'var(--accent-emerald)', transition: 'width 0.4s ease' }}></div>
                 </div>
               </div>
             </div>
@@ -1026,6 +1070,248 @@ export default function AdminDashboard({ token, onLogout }) {
                           <td>{Math.round(trip.speed)} km/h</td>
                           <td style={{ color: 'var(--accent-amber)', fontWeight: '700' }}>{trip.eta_mins} mins</td>
                           <td>{trip.student_count} passengers</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MENU: STUDENT ATTENDANCE */}
+        {activeMenu === 'attendance' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Header & Controls */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', margin: 0 }}>Student Attendance & Verification Log</h2>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  Live boarding scans and attendance records across all college transit routes.
+                </span>
+              </div>
+              <button 
+                onClick={fetchAttendanceList} 
+                className="btn-secondary" 
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px' }}
+                disabled={attendanceLoading}
+              >
+                <RefreshCw size={14} className={attendanceLoading ? 'animate-spin' : ''} />
+                Refresh Logs
+              </button>
+            </div>
+
+            {/* Attendance Metric Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+              <div className="glass-card" style={{ padding: '16px 20px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Total Records Logged</span>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: '#fff' }}>
+                  {attendanceList.length}
+                </div>
+              </div>
+              <div className="glass-card" style={{ padding: '16px 20px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Boarded / Present</span>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-emerald)' }}>
+                  {attendanceList.filter(a => a.attendance_status === 'present').length}
+                </div>
+              </div>
+              <div className="glass-card" style={{ padding: '16px 20px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Awaiting / Absent</span>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-amber)' }}>
+                  {attendanceList.filter(a => a.attendance_status === 'absent').length}
+                </div>
+              </div>
+              <div className="glass-card" style={{ padding: '16px 20px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Not Coming (Opted-Out)</span>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-rose)' }}>
+                  {attendanceList.filter(a => a.attendance_status === 'not_coming').length}
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="glass-card" style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)', fontWeight: '700', fontSize: '13px' }}>
+                <Filter size={16} /> Filters:
+              </div>
+
+              {/* Date Filter */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Calendar size={14} color="var(--text-secondary)" />
+                <input 
+                  type="date" 
+                  className="input-field" 
+                  value={attendanceFilterDate} 
+                  onChange={e => setAttendanceFilterDate(e.target.value)} 
+                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
+                />
+              </div>
+
+              {/* Route Filter */}
+              <div>
+                <select 
+                  className="input-field" 
+                  value={attendanceFilterRoute} 
+                  onChange={e => setAttendanceFilterRoute(e.target.value)}
+                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
+                >
+                  <option value="">All Routes</option>
+                  {routes.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Bus Filter */}
+              <div>
+                <select 
+                  className="input-field" 
+                  value={attendanceFilterBus} 
+                  onChange={e => setAttendanceFilterBus(e.target.value)}
+                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
+                >
+                  <option value="">All Buses</option>
+                  {buses.map(b => (
+                    <option key={b.id} value={b.id}>Bus {b.bus_number} ({b.registration_number})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <select 
+                  className="input-field" 
+                  value={attendanceFilterStatus} 
+                  onChange={e => setAttendanceFilterStatus(e.target.value)}
+                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="present">Boarded / Present</option>
+                  <option value="absent">Awaiting / Absent</option>
+                  <option value="not_coming">Not Coming</option>
+                </select>
+              </div>
+
+              {/* Clear filters */}
+              {(attendanceFilterDate || attendanceFilterRoute || attendanceFilterBus || attendanceFilterStatus) && (
+                <button 
+                  onClick={() => {
+                    setAttendanceFilterDate('');
+                    setAttendanceFilterRoute('');
+                    setAttendanceFilterBus('');
+                    setAttendanceFilterStatus('');
+                  }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--accent-rose)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <X size={14} /> Reset Filters
+                </button>
+              )}
+            </div>
+
+            {/* Attendance Records Table */}
+            <div className="glass-card">
+              <div className="table-responsive">
+                <table className="premium-table">
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Roll Number</th>
+                      <th>Route / Stop</th>
+                      <th>Bus Unit</th>
+                      <th>Verification Time</th>
+                      <th>Status</th>
+                      <th>Emergency Contact</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceLoading ? (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                          Loading attendance records...
+                        </td>
+                      </tr>
+                    ) : attendanceList.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                          No attendance records found for the selected filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      attendanceList.map((record) => (
+                        <tr key={record.attendance_id}>
+                          <td>
+                            <div style={{ fontWeight: '700', color: '#fff' }}>{record.student_name}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>ID #{record.student_id}</span>
+                          </td>
+                          <td>
+                            <span style={{ fontFamily: 'monospace', fontSize: '12px', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
+                              {record.roll_number}
+                            </span>
+                          </td>
+                          <td>
+                            <div>{record.route_name || 'Unassigned'}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--accent-cyan)' }}>
+                              Stop: {record.stop_name || 'Standard Stop'}
+                            </span>
+                          </td>
+                          <td>
+                            {record.bus_number ? (
+                              <div>
+                                <strong>Bus {record.bus_number}</strong>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{record.registration_number}</div>
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>-</span>
+                            )}
+                          </td>
+                          <td>
+                            {record.recorded_at ? (
+                              <div>
+                                <div>{new Date(record.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                  {new Date(record.recorded_at).toLocaleDateString()}
+                                </span>
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>-</span>
+                            )}
+                          </td>
+                          <td>
+                            {record.attendance_status === 'present' && (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: '700',
+                                background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', border: '1px solid rgba(16,185,129,0.3)'
+                              }}>
+                                <CheckCircle size={12} /> Boarded
+                              </span>
+                            )}
+                            {record.attendance_status === 'absent' && (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: '700',
+                                background: 'rgba(245,158,11,0.15)', color: 'var(--accent-amber)', border: '1px solid rgba(245,158,11,0.3)'
+                              }}>
+                                Awaiting / Absent
+                              </span>
+                            )}
+                            {record.attendance_status === 'not_coming' && (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: '700',
+                                background: 'rgba(244,63,94,0.15)', color: 'var(--accent-rose)', border: '1px solid rgba(244,63,94,0.3)'
+                              }}>
+                                <X size={12} /> Not Coming
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Phone size={12} color="var(--text-secondary)" />
+                              {record.emergency_contact || 'N/A'}
+                            </div>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1849,10 +2135,9 @@ export default function AdminDashboard({ token, onLogout }) {
                   </div>
                   
                   <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
-                    <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=VESA_BUS_${selectedBusForSticker.bus_number}`} 
-                      alt={`Bus ${selectedBusForSticker.bus_number} QR Code`} 
-                      style={{ width: '220px', height: '220px', display: 'block' }}
+                    <QRCodeImage 
+                      value={`VESA_BUS_${selectedBusForSticker.bus_number}`} 
+                      size={220} 
                     />
                   </div>
 
