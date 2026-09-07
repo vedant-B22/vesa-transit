@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
-  RefreshCw, Shield, Filter, Calendar, X, CheckCircle, Phone 
+  RefreshCw, Shield, Filter, Calendar, X, CheckCircle, Phone, Search 
 } from 'lucide-react';
 
 export default function AttendanceManagement({
@@ -22,6 +22,20 @@ export default function AttendanceManagement({
   attendanceWindowSaving,
   updateAttendanceWindowSetting
 }) {
+  const [attendanceSearchQuery, setAttendanceSearchQuery] = useState('');
+
+  const filteredAttendance = attendanceList.filter(record => {
+    if (!attendanceSearchQuery.trim()) return true;
+    const q = attendanceSearchQuery.toLowerCase();
+    return (
+      (record.student_name && record.student_name.toLowerCase().includes(q)) ||
+      (record.roll_number && record.roll_number.toLowerCase().includes(q)) ||
+      (record.stop_name && record.stop_name.toLowerCase().includes(q)) ||
+      (record.route_name && record.route_name.toLowerCase().includes(q)) ||
+      (record.bus_number && String(record.bus_number).toLowerCase().includes(q))
+    );
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Header & Controls */}
@@ -44,7 +58,7 @@ export default function AttendanceManagement({
       </div>
 
       {/* Attendance Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+      <div className="admin-stat-grid-4">
         <div className="glass-card" style={{ padding: '16px 20px' }}>
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Total Records Logged</span>
           <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--text-primary)' }}>
@@ -148,10 +162,32 @@ export default function AttendanceManagement({
         </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="glass-card" style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)', fontWeight: '700', fontSize: '13px' }}>
+      {/* Filter Bar with Real-time Search */}
+      <div className="glass-card" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-cyan)', fontWeight: '700', fontSize: '13px' }}>
           <Filter size={16} /> Filters:
+        </div>
+
+        {/* Search by student name / roll number / stop */}
+        <div style={{ position: 'relative', flex: '1 1 200px', minWidth: '180px' }}>
+          <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            className="input-field"
+            placeholder="Search student, roll #, stop..."
+            value={attendanceSearchQuery}
+            onChange={e => setAttendanceSearchQuery(e.target.value)}
+            style={{ paddingLeft: '32px', fontSize: '12px', width: '100%', background: 'var(--bg-main)' }}
+          />
+          {attendanceSearchQuery && (
+            <button
+              type="button"
+              onClick={() => setAttendanceSearchQuery('')}
+              style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
 
         {/* Date Filter */}
@@ -212,13 +248,14 @@ export default function AttendanceManagement({
         </div>
 
         {/* Clear filters */}
-        {(attendanceFilterDate || attendanceFilterRoute || attendanceFilterBus || attendanceFilterStatus) && (
+        {(attendanceFilterDate || attendanceFilterRoute || attendanceFilterBus || attendanceFilterStatus || attendanceSearchQuery) && (
           <button 
             onClick={() => {
               setAttendanceFilterDate('');
               setAttendanceFilterRoute('');
               setAttendanceFilterBus('');
               setAttendanceFilterStatus('');
+              setAttendanceSearchQuery('');
             }}
             style={{ background: 'transparent', border: 'none', color: 'var(--accent-rose)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
           >
@@ -249,14 +286,14 @@ export default function AttendanceManagement({
                     Loading attendance records...
                   </td>
                 </tr>
-              ) : attendanceList.length === 0 ? (
+              ) : filteredAttendance.length === 0 ? (
                 <tr>
                   <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
-                    No attendance records found for the selected filters.
+                    {attendanceSearchQuery ? `No attendance records matching "${attendanceSearchQuery}"` : 'No attendance records found for the selected filters.'}
                   </td>
                 </tr>
               ) : (
-                attendanceList.map((record) => (
+                filteredAttendance.map((record) => (
                   <tr key={record.attendance_id}>
                     <td>
                       <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{record.student_name}</div>

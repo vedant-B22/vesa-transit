@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, Menu, X } from 'lucide-react';
 import AdminSidebar from './admin/AdminSidebar';
 import DashboardOverview from './admin/DashboardOverview';
 import LiveTrackingMap from './admin/LiveTrackingMap';
@@ -890,7 +890,28 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)', color: 'var(--text-primary)' }}>
+    <div className="admin-layout">
+      {/* Mobile Topbar */}
+      <div className="admin-mobile-topbar">
+        <div className="brand-title" style={{ fontSize: '18px' }}>
+          <img src="/icons/icon-192.png" alt="VESA" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />
+          <span>VESA Transit</span>
+        </div>
+        <button
+          onClick={() => setIsMobileOpen(!isMobileOpen)}
+          style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '6px' }}
+          aria-label="Toggle menu"
+        >
+          {isMobileOpen ? <X size={22} /> : <Menu size={22} />}
+        </button>
+      </div>
+
+      {/* Mobile Sidebar Backdrop */}
+      <div 
+        className={`admin-sidebar-backdrop ${isMobileOpen ? 'active' : ''}`}
+        onClick={() => setIsMobileOpen(false)}
+      />
+
       {/* Admin Sidebar Navigation */}
       <AdminSidebar
         activeMenu={activeMenu}
@@ -903,7 +924,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
       />
 
       {/* Main Panel Content */}
-      <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
+      <div className="admin-main-content">
         
         {/* Active Emergency SOS Alerts Banner */}
         {activeSOS.length > 0 && (

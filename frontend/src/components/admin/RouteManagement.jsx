@@ -120,7 +120,7 @@ export default function RouteManagement({
       {/* Add / Edit Route Modal */}
       {routeModal.isOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-          <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="glass-card" style={{ width: 'min(95vw, 480px)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
               <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
                 {routeModal.mode === 'add' ? 'Create Transit Route' : 'Edit Route Details'}
@@ -208,7 +208,7 @@ export default function RouteManagement({
       {/* Manage Stops Drawer / Modal */}
       {stopsRoute && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-          <div className="glass-card" style={{ width: '640px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '85vh', overflowY: 'auto' }}>
+          <div className="glass-card" style={{ width: 'min(95vw, 640px)', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
               <div>
                 <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Manage Stops: {stopsRoute.name}</h3>
@@ -234,7 +234,7 @@ export default function RouteManagement({
                 onClick={() => setStopModal({
                   isOpen: true,
                   mode: 'add',
-                  data: { id: null, name: '', latitude: 12.9716, longitude: 77.5946, sequenceOrder: stopsList.length + 1, scheduledTime: '07:30 AM' }
+                  data: { id: null, name: '', latitude: 18.5204, longitude: 73.8567, sequenceOrder: stopsList.length + 1, scheduledTime: '07:30 AM' }
                 })}
                 className="btn-primary"
                 style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -312,7 +312,7 @@ export default function RouteManagement({
       {/* Add / Edit Stop Modal */}
       {stopModal.isOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10001, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-          <div className="glass-card" style={{ width: '420px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div className="glass-card" style={{ width: 'min(95vw, 420px)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>
                 {stopModal.mode === 'add' ? 'Add Pickup Stop' : 'Edit Pickup Stop'}

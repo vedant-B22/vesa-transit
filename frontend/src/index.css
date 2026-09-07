@@ -652,6 +652,101 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom-color: var(--accent-cyan);
 }
 
+/* Admin Layout & Mobile Drawer Responsiveness */
+.admin-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-main);
+  color: var(--text-primary);
+  position: relative;
+  overflow-x: hidden;
+}
+
+.admin-main-content {
+  flex: 1;
+  padding: 36px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+.admin-mobile-topbar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--bg-surface-solid);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 990;
+}
+
+.admin-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 998;
+}
+
+@media (max-width: 900px) {
+  .admin-mobile-topbar {
+    display: flex;
+  }
+  
+  .admin-sidebar-backdrop.active {
+    display: block;
+  }
+
+  .admin-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 999;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 30px rgba(0,0,0,0.8);
+    width: 280px !important;
+  }
+
+  .admin-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .admin-main-content {
+    padding: 18px 16px;
+  }
+
+  .admin-grid [style*="grid-column: span 8"],
+  .admin-grid [style*="grid-column: span 6"],
+  .admin-grid [style*="grid-column: span 4"] {
+    grid-column: span 12 !important;
+  }
+  
+  .admin-stat-grid-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (max-width: 540px) {
+  .admin-stat-grid-4 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .admin-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px;
+  }
+
+  .admin-card-stat {
+    grid-column: span 1 !important;
+  }
+}
+
 @media (max-width: 400px) {
   .phone-emulator {
     width: 100%;
@@ -666,3 +761,4 @@ h1, h2, h3, h4, h5, h6 {
     padding-top: 0;
   }
 }
+

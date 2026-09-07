@@ -100,7 +100,7 @@ export default function DashboardOverview({ stats, analytics, maintenanceRecs, t
       {/* Analytical Reports Downloader */}
       <div className="glass-card">
         <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Reports & Analytics Export Center</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+        <div className="admin-stat-grid-4">
           {[
             { title: 'Attendance Log', type: 'attendance' },
             { title: 'Route Performance', type: 'route' },

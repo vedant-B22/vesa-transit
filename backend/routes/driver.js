@@ -8,7 +8,7 @@ import { broadcast } from '../services/websocket.js';
 export function createDriverRouter() {
   const router = Router();
 
-  // Get active or scheduled trip for driver
+  // Get active or scheduled trip for driver (Supports reversible stop order)
   router.get('/trip/:driverId', authenticateToken, requireRole('driver', 'admin'), verifyResourceOwnership('driver'), async (req, res, next) => {
     try {
       const resolved = await db.resolveDriverRoute(req.params.driverId);
@@ -29,9 +29,10 @@ export function createDriverRouter() {
       }
 
       if (!trip) {
+        const requestedDir = req.query.direction === 'reverse' ? 'reverse' : 'forward';
         const newTripRes = await db.run(
-          'INSERT INTO trips (bus_id, route_id, driver_id, status) VALUES ($1, $2, $3, \'scheduled\') RETURNING id',
-          [resolved.bus.id, resolved.route.id, req.params.driverId]
+          'INSERT INTO trips (bus_id, route_id, driver_id, status, direction) VALUES ($1, $2, $3, \'scheduled\', $4) RETURNING id',
+          [resolved.bus.id, resolved.route.id, req.params.driverId, requestedDir]
         );
 
         trip = await db.get(
@@ -44,8 +45,17 @@ export function createDriverRouter() {
         return res.status(404).json({ error: 'Could not initialize transit trip for this driver.' });
       }
 
+      // If driver explicitly toggled direction on scheduled trip, persist it
+      if (req.query.direction && (req.query.direction === 'forward' || req.query.direction === 'reverse') && trip.status === 'scheduled') {
+        await db.run('UPDATE trips SET direction = $1 WHERE id = $2', [req.query.direction, trip.id]);
+        trip.direction = req.query.direction;
+      }
+
+      const isReverse = trip.direction === 'reverse';
+      const orderDir = isReverse ? 'DESC' : 'ASC';
+
       const stops = await db.query(
-        'SELECT * FROM stops WHERE route_id = $1 ORDER BY sequence_order ASC',
+        `SELECT * FROM stops WHERE route_id = $1 ORDER BY sequence_order ${orderDir}`,
         [trip.route_id]
       );
 
@@ -57,7 +67,7 @@ export function createDriverRouter() {
 
   // Driver Trip Action
   router.post('/trip/action', authenticateToken, requireRole('driver', 'admin'), async (req, res, next) => {
-    const { tripId, action, stopId, lat, lng } = req.body;
+    const { tripId, action, stopId, lat, lng, direction } = req.body;
     const validationErr = validateRequired(req.body, ['tripId', 'action']);
     if (validationErr) return res.status(400).json({ error: validationErr });
 
@@ -66,10 +76,11 @@ export function createDriverRouter() {
       const timestampStr = new Date().toLocaleTimeString();
 
       if (action === 'start') {
+        const tripDir = direction === 'reverse' ? 'reverse' : 'forward';
         await db.withTransaction(async (tx) => {
           await tx.run(
-            'UPDATE trips SET status = \'active\', started_at = $1, current_lat = $2, current_lng = $3, current_stop_id = $4 WHERE id = $5',
-            [timestampStr, lat || null, lng || null, stopId || null, tripId]
+            'UPDATE trips SET status = \'active\', direction = $1, started_at = $2, current_lat = $3, current_lng = $4, current_stop_id = $5 WHERE id = $6',
+            [tripDir, timestampStr, lat || null, lng || null, stopId || null, tripId]
           );
           await tx.run('UPDATE drivers SET status = \'on_trip\' WHERE user_id = (SELECT driver_id FROM trips WHERE id = $1)', [tripId]);
           
@@ -88,12 +99,25 @@ export function createDriverRouter() {
         });
 
         const trip = await db.get('SELECT route_id FROM trips WHERE id = $1', [tripId]);
-        broadcast({ type: 'trip_started', tripId, routeId: trip?.route_id });
+        broadcast({ type: 'trip_started', tripId, routeId: trip?.route_id, direction: tripDir });
       } else if (action === 'reach_stop') {
         await db.withTransaction(async (tx) => {
+          const trip = await tx.get('SELECT * FROM trips WHERE id = $1', [tripId]);
+          const isReverse = trip?.direction === 'reverse';
+          let nextStopId = null;
+
+          if (stopId && trip?.route_id) {
+            const currentStop = await tx.get('SELECT sequence_order FROM stops WHERE id = $1', [stopId]);
+            if (currentStop) {
+              const targetSeq = isReverse ? currentStop.sequence_order - 1 : currentStop.sequence_order + 1;
+              const nextStop = await tx.get('SELECT id FROM stops WHERE route_id = $1 AND sequence_order = $2', [trip.route_id, targetSeq]);
+              if (nextStop) nextStopId = nextStop.id;
+            }
+          }
+
           await tx.run(
             'UPDATE trips SET current_stop_id = $1, next_stop_id = $2, current_lat = $3, current_lng = $4 WHERE id = $5',
-            [stopId, Number(stopId) + 1, lat, lng, tripId]
+            [stopId, nextStopId, lat, lng, tripId]
           );
 
           await tx.run(
@@ -222,7 +246,24 @@ export function createDriverRouter() {
 
     try {
       const answer = await ai.answerDriverVoiceQuery(driverId, query, lang);
-      res.json({ success: true, answer });
+      const ttsData = await ai.generateTTSAudio(answer, lang);
+      res.json({
+        success: true,
+        answer,
+        audioBase64: ttsData.audioBase64 || null
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Driver TTS Endpoint
+  router.post('/tts', authenticateToken, requireRole('driver', 'admin'), async (req, res, next) => {
+    const { text, lang } = req.body;
+    if (!text) return res.status(400).json({ error: 'text is required' });
+    try {
+      const ttsData = await ai.generateTTSAudio(text, lang);
+      res.json(ttsData);
     } catch (err) {
       next(err);
     }

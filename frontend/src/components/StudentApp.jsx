@@ -137,6 +137,12 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   const [lfDesc, setLfDesc] = useState('');
   const [lfSuccess, setLfSuccess] = useState(false);
 
+  // Student Attendance Records & Real Receipt State
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [attendanceStats, setAttendanceStats] = useState(null);
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+
   // AI Chat Assistant
   const [chatMessages, setChatMessages] = useState([
     { sender: 'ai', text: "Hello! I'm your transit AI copilot. How can I help with your bus timing or stop route today?" }
@@ -260,6 +266,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   useEffect(() => {
     fetchProfile();
     fetchFees();
+    fetchAttendanceHistory();
     initWebSocket();
 
     return () => {
@@ -309,6 +316,37 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const fetchAttendanceHistory = async () => {
+    try {
+      const res = await authFetch(`${API_BASE}/student/attendance/${userId}`);
+      const data = await res.json();
+      if (res.ok) {
+        setAttendanceRecords(data.attendance || []);
+        setAttendanceStats(data.stats || null);
+      }
+    } catch (e) {
+      console.error('Error fetching attendance history:', e);
+    }
+  };
+
+  const handleDownloadReceipt = async (paymentId) => {
+    setReceiptLoading(true);
+    try {
+      const res = await authFetch(`${API_BASE}/student/receipt/${paymentId}`);
+      const data = await res.json();
+      if (res.ok) {
+        setSelectedReceipt(data);
+      } else {
+        alert(data.error || 'Unable to load payment receipt.');
+      }
+    } catch (e) {
+      console.error('Error fetching receipt:', e);
+      alert('Failed to connect to receipt service.');
+    } finally {
+      setReceiptLoading(false);
     }
   };
 
@@ -427,6 +465,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
         setAttendanceSuccess(data);
         showToast('Attendance Marked!', data.message);
         playAlarmTone();
+        fetchAttendanceHistory();
       } else {
         alert(data.message || 'Verification error');
       }
@@ -466,8 +505,21 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   };
 
   const handleSOS = async () => {
-    const lat = 12.9716;
-    const lng = 77.5946;
+    let lat = 18.5204;
+    let lng = 73.8567;
+
+    if (navigator.geolocation) {
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4000, enableHighAccuracy: true });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+      } catch (geoErr) {
+        console.warn('Geolocation fallback for SOS:', geoErr);
+      }
+    }
+
     setSosActive(true);
 
     try {
@@ -581,7 +633,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   const isTripActive = trip && trip.status === 'active';
   const busCoords = isTripActive && trip.current_lat ? [trip.current_lat, trip.current_lng] : null;
   const myStop = stops.find(s => s.id === profile.pickup_stop_id);
-  const myStopCoords = myStop ? [myStop.latitude, myStop.longitude] : [12.9716, 77.5946];
+  const myStopCoords = myStop ? [myStop.latitude, myStop.longitude] : [18.5204, 73.8567];
 
   return (
     <div className="phone-screen" style={{ position: 'relative' }}>
@@ -904,8 +956,12 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
                         <div style={{ fontSize: '12px', fontWeight: '600' }}>Amount: ₹{p.amount}</div>
                         <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>TXN ID: {p.transaction_id}</span>
                       </div>
-                      <button onClick={() => mockDownloadReceipt(p.transaction_id)} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                        <FileText size={12} /> Receipt
+                      <button 
+                        onClick={() => handleDownloadReceipt(p.id)} 
+                        disabled={receiptLoading}
+                        style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
+                      >
+                        <FileText size={12} /> {receiptLoading ? 'Loading...' : 'Receipt (PDF)'}
                       </button>
                     </div>
                   ))}
@@ -1004,6 +1060,82 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '15px', fontWeight: '700' }}>{profile.name}</div>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Roll: {profile.roll_number} • Bus {profile.bus_number}</span>
+              </div>
+            </div>
+
+            {/* Student Personal Attendance History Log */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', margin: 0 }}>My Boarding & Attendance Log</h4>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Official scan verification records</span>
+                </div>
+                {attendanceStats && (
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '800',
+                    padding: '3px 8px',
+                    borderRadius: '12px',
+                    background: attendanceStats.attendanceRate >= 75 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                    color: attendanceStats.attendanceRate >= 75 ? 'var(--accent-emerald)' : 'var(--accent-rose)',
+                    border: '1px solid ' + (attendanceStats.attendanceRate >= 75 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)')
+                  }}>
+                    {attendanceStats.attendanceRate}% Attendance
+                  </span>
+                )}
+              </div>
+
+              {attendanceStats && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--accent-emerald)' }}>{attendanceStats.presentTrips}</div>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Boarded</span>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--accent-amber)' }}>{attendanceStats.absentTrips}</div>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Absent</span>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--accent-rose)' }}>{attendanceStats.optedOutTrips}</div>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Opted Out</span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                {attendanceRecords.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
+                    No boarding logs recorded yet. Scan bus QR to check in.
+                  </div>
+                ) : (
+                  attendanceRecords.map(rec => (
+                    <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--bg-card)', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
+                      <div>
+                        <div style={{ fontWeight: '600' }}>{rec.route_name || 'Transit Route'}</div>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                          {rec.scanned_at ? new Date(rec.scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : (rec.trip_date || 'Recent')}
+                        </span>
+                      </div>
+                      <div>
+                        {rec.status === 'present' && (
+                          <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--accent-emerald)', background: 'rgba(16,185,129,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
+                            ● Boarded
+                          </span>
+                        )}
+                        {rec.status === 'absent' && (
+                          <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--accent-amber)', background: 'rgba(245,158,11,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
+                            ● Absent
+                          </span>
+                        )}
+                        {rec.status === 'not_coming' && (
+                          <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--accent-rose)', background: 'rgba(244,63,94,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
+                            ● Opted-Out
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -1185,6 +1317,86 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
           <span>Profile</span>
         </button>
       </div>
+
+      {/* Official Payment Receipt Modal (Printable & Downloadable) */}
+      {selectedReceipt && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-card" style={{ width: 'min(95vw, 420px)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-surface-solid)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', border: '1px solid var(--accent-cyan)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <img src="/icons/icon-192.png" alt="VESA" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                  <span style={{ fontSize: '13px', fontWeight: '800', letterSpacing: '0.5px' }}>VESA TRANSIT</span>
+                </div>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>Official Fee Payment Receipt</div>
+              </div>
+              <button onClick={() => setSelectedReceipt(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Receipt #: </span>
+                <strong style={{ color: 'var(--accent-cyan)' }}>{selectedReceipt.receiptNumber}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Date: </span>
+                <strong>{new Date(selectedReceipt.date).toLocaleDateString()}</strong>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Student Name</span>
+                <span style={{ fontWeight: '700' }}>{selectedReceipt.student.name}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Roll Number</span>
+                <span style={{ fontFamily: 'monospace' }}>{selectedReceipt.student.rollNumber}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Transit Route</span>
+                <span>{selectedReceipt.transit.route}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Assigned Bus</span>
+                <span>Bus {selectedReceipt.transit.busUnit}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Payment Mode</span>
+                <span>{selectedReceipt.payment.method}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '8px' }}>
+                <span style={{ fontWeight: '700' }}>Amount Received</span>
+                <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--accent-emerald)' }}>₹{selectedReceipt.payment.amount}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Status: <b style={{ color: 'var(--accent-emerald)' }}>{selectedReceipt.payment.status.toUpperCase()}</b></span>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Txn: {selectedReceipt.transactionId}</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+              <button 
+                onClick={() => window.print()} 
+                className="btn-primary" 
+                style={{ padding: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                <FileText size={14} /> Print / PDF
+              </button>
+              <button 
+                onClick={() => setSelectedReceipt(null)} 
+                className="btn-secondary" 
+                style={{ padding: '8px', fontSize: '12px' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

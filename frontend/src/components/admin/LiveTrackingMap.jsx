@@ -29,7 +29,7 @@ export default function LiveTrackingMap({ liveTrips }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div className="glass-card" style={{ height: '480px', padding: '12px' }}>
         <MapContainer 
-          center={[12.9716, 77.5946]} 
+          center={[18.5204, 73.8567]} 
           zoom={12} 
           scrollWheelZoom={false}
         >

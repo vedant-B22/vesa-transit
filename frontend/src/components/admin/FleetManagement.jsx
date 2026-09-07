@@ -110,7 +110,7 @@ export default function FleetManagement({
       {/* Add / Edit Bus Modal */}
       {busModal.isOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-          <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="glass-card" style={{ width: 'min(95vw, 480px)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
               <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
                 {busModal.mode === 'add' ? 'Register New Bus Unit' : 'Edit Bus Details'}

@@ -43,6 +43,108 @@ export function createStudentRouter(alertLimiter) {
     }
   });
 
+  // Student Attendance History (View own boarding logs)
+  router.get('/attendance/:id', authenticateToken, requireRole('student', 'admin'), verifyResourceOwnership('student'), async (req, res, next) => {
+    try {
+      const records = await db.query(
+        `SELECT a.id, a.trip_id, a.status, a.scanned_at,
+                t.date as trip_date, t.start_time, t.end_time, t.direction,
+                r.name as route_name, b.bus_number,
+                st.name as stop_name
+         FROM attendance a
+         JOIN trips t ON a.trip_id = t.id
+         LEFT JOIN routes r ON t.route_id = r.id
+         LEFT JOIN buses b ON t.bus_id = b.id
+         LEFT JOIN students s ON a.student_id = s.user_id
+         LEFT JOIN stops st ON s.pickup_stop_id = st.id
+         WHERE a.student_id = $1
+         ORDER BY a.scanned_at DESC, a.id DESC
+         LIMIT 60`,
+        [req.params.id]
+      );
+
+      const totalCount = records.length;
+      const presentCount = records.filter(r => r.status === 'present').length;
+      const attendanceRate = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 100;
+
+      res.json({
+        attendance: records,
+        stats: {
+          totalTrips: totalCount,
+          presentTrips: presentCount,
+          absentTrips: records.filter(r => r.status === 'absent').length,
+          optedOutTrips: records.filter(r => r.status === 'not_coming').length,
+          attendanceRate
+        }
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Official Student Payment Receipt
+  router.get('/receipt/:paymentId', authenticateToken, requireRole('student', 'admin'), async (req, res, next) => {
+    try {
+      const payment = await db.get(
+        `SELECT p.*, f.student_id, f.total_amount, f.paid_amount, f.pending_amount, f.status as fee_status,
+                s.name as student_name, s.roll_number, s.emergency_contact,
+                r.name as route_name, b.bus_number, u.email as student_email
+         FROM payments p
+         JOIN fees f ON p.fee_id = f.id
+         JOIN students s ON f.student_id = s.user_id
+         JOIN users u ON s.user_id = u.id
+         LEFT JOIN routes r ON s.route_id = r.id
+         LEFT JOIN buses b ON s.bus_id = b.id
+         WHERE p.id = $1`,
+        [req.params.paymentId]
+      );
+
+      if (!payment) return res.status(404).json({ error: 'Receipt record not found' });
+
+      if (req.user.role === 'student' && String(payment.student_id) !== String(req.user.id)) {
+        return res.status(403).json({ error: 'Unauthorized to view this receipt' });
+      }
+
+      const receiptData = {
+        receiptNumber: `REC-VESA-${String(payment.id).padStart(6, '0')}`,
+        transactionId: payment.transaction_id || `TXN-${payment.id}-${Date.now()}`,
+        date: payment.created_at || new Date().toISOString(),
+        student: {
+          name: payment.student_name,
+          rollNumber: payment.roll_number,
+          email: payment.student_email,
+          contact: payment.emergency_contact
+        },
+        transit: {
+          route: payment.route_name || 'Standard Transit Route',
+          busUnit: payment.bus_number || 'VESA Bus'
+        },
+        payment: {
+          amount: payment.amount,
+          method: payment.payment_method || 'Online Transfer (UPI/Card)',
+          status: payment.status || 'verified',
+          remarks: payment.remarks || 'Term Transit Fee Payment'
+        },
+        summary: {
+          totalFee: payment.total_amount,
+          totalPaidToDate: payment.paid_amount,
+          balanceRemaining: payment.pending_amount,
+          status: payment.fee_status
+        },
+        institution: {
+          name: 'VESA Transit & Transport Department',
+          campus: 'VESA Engineering & Technology Campus, Pune',
+          supportEmail: 'transport-support@vesatransit.edu',
+          helpline: '+91 (020) 2432-8900'
+        }
+      };
+
+      res.json(receiptData);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Student Not Coming Today Toggle
   router.post('/not-coming', authenticateToken, requireRole('student', 'admin'), verifyResourceOwnership('student'), async (req, res, next) => {
     const { studentId, date, isComing } = req.body;

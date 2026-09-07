@@ -131,6 +131,9 @@ export const initDatabase = async () => {
       await pool.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_trip_student ON attendance (trip_id, student_id);
       `);
+      await pool.query(`
+        ALTER TABLE trips ADD COLUMN IF NOT EXISTS direction TEXT CHECK(direction IN ('forward', 'reverse')) DEFAULT 'forward';
+      `);
     } catch (migErr) {
       console.warn('Attendance unique index migration note:', migErr.message);
     }

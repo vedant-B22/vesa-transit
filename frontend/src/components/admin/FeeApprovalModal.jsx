@@ -17,8 +17,8 @@ export default function FeeApprovalModal({
   if (!feeModalStudent) return null;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-      <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+      <div className="glass-card" style={{ width: 'min(95vw, 480px)', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
           <h3 style={{ fontSize: '18px', fontWeight: '700' }}>Admin Fee Payment Approval</h3>
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>

@@ -6,7 +6,7 @@ export default function BusScannerModal({ selectedBusForSticker, setSelectedBusF
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-      <div className="glass-card" style={{ width: '400px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center', padding: '28px', border: '2px solid var(--border-color)' }}>
+      <div className="glass-card" style={{ width: 'min(95vw, 400px)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center', padding: '28px', border: '2px solid var(--border-color)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)' }}>
           <img src="/icons/icon-192.png" alt="VESA" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
           <span style={{ fontSize: '13px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>

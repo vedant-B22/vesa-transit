@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS trips (
     eta_mins INTEGER,
     current_stop_id INTEGER REFERENCES stops(id),
     next_stop_id INTEGER REFERENCES stops(id),
+    direction TEXT CHECK(direction IN ('forward', 'reverse')) DEFAULT 'forward',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

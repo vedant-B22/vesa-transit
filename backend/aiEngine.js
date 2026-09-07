@@ -327,6 +327,56 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
   const boarded = students.filter(s => s.passenger_status === 'present');
   const awaiting = students.filter(s => s.passenger_status === 'absent');
 
+  // Attempt real LLM API call if API key is provided
+  if (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY) {
+    try {
+      const languageTarget = isMarathi ? 'Marathi' : isHindi ? 'Hindi' : 'English';
+      const promptContext = `You are a real-time transit copilot voice assistant for bus driver ${driver.name} operating VESA Bus ${bus.bus_number} on ${route.name}.
+Trip Status: ${activeTrip ? 'Active' : 'Scheduled'}, Current Stop: ${activeTrip?.current_stop_name || 'Terminal'}, Next Stop: ${activeTrip?.next_stop_name || 'Campus Gate'}, Speed: ${Math.round(activeTrip?.speed || 0)} km/h, ETA: ${activeTrip?.eta_mins || 0} mins.
+Student Roster: Total ${students.length}, Boarded (${boarded.length}): ${boarded.map(s => s.name).join(', ') || 'None yet'}, Not Coming (${notComing.length}): ${notComing.map(s => `${s.name} at ${s.stop_name}`).join(', ') || 'None'}, Awaiting (${awaiting.length}): ${awaiting.map(s => `${s.name} at ${s.stop_name}`).join(', ') || 'None'}.
+
+Driver's question: "${query}"
+Respond in ${languageTarget} with a direct, spoken-friendly, concise answer in 1-2 short sentences without Markdown symbols or bullet points.`;
+
+      if (process.env.GEMINI_API_KEY) {
+        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: promptContext }] }] })
+        });
+        if (geminiRes.ok) {
+          const geminiData = await geminiRes.json();
+          const candidateText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (candidateText && candidateText.trim()) {
+            return candidateText.trim();
+          }
+        }
+      } else if (process.env.OPENAI_API_KEY) {
+        const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'system', content: 'You are a concise voice assistant for a college bus driver.' }, { role: 'user', content: promptContext }],
+            max_tokens: 100
+          })
+        });
+        if (openaiRes.ok) {
+          const openaiData = await openaiRes.json();
+          const reply = openaiData.choices?.[0]?.message?.content;
+          if (reply && reply.trim()) {
+            return reply.trim();
+          }
+        }
+      }
+    } catch (llmErr) {
+      console.warn('LLM API call failed, falling back to local intent parser:', llmErr.message);
+    }
+  }
+
   // 1. Who is not coming / Absences
   if (q.includes('not coming') || q.includes('absent') || q.includes('opted out') || q.includes('who is missing') || q.includes('absence') ||
       q.includes('नाही') || q.includes('येत नाही') || q.includes('गैरहजर') || q.includes('नहीं आ रहा') || q.includes('अनुपस्थित')) {
@@ -415,4 +465,38 @@ export const answerDriverVoiceQuery = async (driverId, query, lang = 'en') => {
   }
 
   return `Driver Assistant online for Bus ${bus.bus_number} (${route.name}). You can say: "Who is not coming today?", "What is the passenger headcount?", or "What is the next stop?".`;
+};
+
+/**
+ * Backend TTS Audio Generator
+ * Generates spoken audio stream or returns fallback metadata for client speech synthesis
+ */
+export const generateTTSAudio = async (text, lang = 'en') => {
+  if (!text) return { success: false, error: 'No text provided' };
+
+  // If Google Cloud TTS key or ElevenLabs key is configured:
+  if (process.env.GOOGLE_TTS_API_KEY) {
+    try {
+      const gttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${process.env.GOOGLE_TTS_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: { text },
+          voice: {
+            languageCode: lang === 'mr' ? 'mr-IN' : lang === 'hi' ? 'hi-IN' : 'en-IN',
+            ssmlGender: 'NEUTRAL'
+          },
+          audioConfig: { audioEncoding: 'MP3' }
+        })
+      });
+      if (gttsRes.ok) {
+        const data = await gttsRes.json();
+        return { success: true, audioBase64: `data:audio/mp3;base64,${data.audioContent}`, text, lang };
+      }
+    } catch (ttsErr) {
+      console.warn('Google TTS synthesis failed:', ttsErr.message);
+    }
+  }
+
+  return { success: true, audioBase64: null, text, lang, provider: 'client_synthesis_fallback' };
 };

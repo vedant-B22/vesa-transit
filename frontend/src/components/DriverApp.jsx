@@ -133,7 +133,11 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
     }
   };
 
-  // Voice Query Submission
+  // Trip direction & Dedicated Driver Navigation Mode State
+  const [tripDirection, setTripDirection] = useState('forward'); // 'forward' | 'reverse'
+  const [navMode, setNavMode] = useState('overview'); // 'overview' | 'copilot'
+
+  // Voice Query Submission with Backend TTS Audio Playback
   const handleVoiceQuery = async (queryText, langCode = voiceLang) => {
     if (!queryText || !queryText.trim()) return;
     setVoiceQuery(queryText);
@@ -150,7 +154,22 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       const data = await res.json();
       if (res.ok) {
         setAiVoiceResponse(data.answer);
-        speakText(data.answer, langCode);
+        if (data.audioBase64) {
+          try {
+            const audio = new Audio(data.audioBase64);
+            setIsSpeaking(true);
+            audio.onended = () => setIsSpeaking(false);
+            audio.onerror = () => {
+              setIsSpeaking(false);
+              speakText(data.answer, langCode);
+            };
+            audio.play();
+          } catch (audioErr) {
+            speakText(data.answer, langCode);
+          }
+        } else {
+          speakText(data.answer, langCode);
+        }
       }
     } catch (err) {
       setAiVoiceResponse("Unable to reach voice assistant server.");
@@ -294,15 +313,19 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
     };
   }, [userId]);
 
-  const fetchTrip = async () => {
+  const fetchTrip = async (forcedDir = null) => {
     try {
       setTripError(null);
-      const res = await authFetch(`${API_BASE}/driver/trip/${userId}`);
+      const dirQuery = forcedDir || tripDirection;
+      const res = await authFetch(`${API_BASE}/driver/trip/${userId}?direction=${dirQuery}`);
       const data = await res.json();
       if (res.ok && data.trip) {
         setTrip(data.trip);
         setStops(data.stops || []);
         setTripStatus(data.trip.status);
+        if (data.trip.direction) {
+          setTripDirection(data.trip.direction);
+        }
         if (data.trip.status === 'active') {
           fetchAttendance(data.trip.id);
           startRealGpsTracking(data.trip.id);
@@ -314,6 +337,11 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       console.error('Error fetching driver trip data:', e);
       setTripError('Failed to synchronize driver unit with transit server. Please check your connection.');
     }
+  };
+
+  const handleToggleDirection = async (newDir) => {
+    setTripDirection(newDir);
+    await fetchTrip(newDir);
   };
 
   const fetchAttendance = async (tripId) => {
@@ -380,8 +408,8 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
   const handleStartTrip = async () => {
     if (!trip) return;
     const firstStop = stops[0]?.id || 1;
-    const lat = currentLocation.latitude || stops[0]?.latitude || 12.9716;
-    const lng = currentLocation.longitude || stops[0]?.longitude || 77.5946;
+    const lat = currentLocation.latitude || stops[0]?.latitude || 18.5204;
+    const lng = currentLocation.longitude || stops[0]?.longitude || 73.8567;
 
     try {
       const res = await authFetch(`${API_BASE}/driver/trip/action`, {
@@ -391,7 +419,8 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
           action: 'start',
           stopId: firstStop,
           lat,
-          lng
+          lng,
+          direction: tripDirection
         })
       });
       if (res.ok) {
@@ -459,8 +488,8 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
   const handleEndTrip = async () => {
     if (!trip) return;
     const lastStop = stops[stops.length - 1];
-    const lat = currentLocation.latitude || lastStop?.latitude || 12.9716;
-    const lng = currentLocation.longitude || lastStop?.longitude || 77.5946;
+    const lat = currentLocation.latitude || lastStop?.latitude || 18.5204;
+    const lng = currentLocation.longitude || lastStop?.longitude || 73.8567;
 
     try {
       const res = await authFetch(`${API_BASE}/driver/trip/action`, {
@@ -560,7 +589,7 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
   const activeStop = stops[activeStopIndex];
   const busCoordinates = currentLocation.latitude && currentLocation.longitude
     ? [currentLocation.latitude, currentLocation.longitude]
-    : (stops[0] ? [stops[0].latitude, stops[0].longitude] : [12.9716, 77.5946]);
+    : (stops[0] ? [stops[0].latitude, stops[0].longitude] : [18.5204, 73.8567]);
 
   const boardedList = attendance.filter(st => (st.effective_status || st.status) === 'present');
   const notComingList = attendance.filter(st => (st.effective_status || st.status) === 'not_coming');
@@ -718,12 +747,40 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
 
         {/* Live Trip Controller Actions */}
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <h4 style={{ fontSize: '13px', fontWeight: '700' }}>Trip Operations Console</h4>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h4 style={{ fontSize: '13px', fontWeight: '700', margin: 0 }}>Trip Operations Console</h4>
+            <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: '800', color: tripDirection === 'reverse' ? 'var(--accent-amber)' : 'var(--accent-cyan)' }}>
+              {tripDirection === 'reverse' ? '🌇 Reverse Outbound' : '🌅 Forward Inbound'}
+            </span>
+          </div>
           
           {tripStatus === 'scheduled' && (
-            <button className="btn-primary" onClick={handleStartTrip}>
-              <Play size={16} /> Start Daily Trip Shift
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Select Transit Direction:</span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleDirection('forward')}
+                    className={tripDirection === 'forward' ? 'btn-primary' : 'btn-secondary'}
+                    style={{ padding: '6px 8px', fontSize: '11px', textAlign: 'center' }}
+                  >
+                    🌅 Forward (Hub → Campus)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleDirection('reverse')}
+                    className={tripDirection === 'reverse' ? 'btn-primary' : 'btn-secondary'}
+                    style={{ padding: '6px 8px', fontSize: '11px', textAlign: 'center' }}
+                  >
+                    🌇 Reverse (Campus → Hub)
+                  </button>
+                </div>
+              </div>
+              <button className="btn-primary" onClick={handleStartTrip} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                <Play size={16} /> Start Daily Trip Shift ({tripDirection === 'reverse' ? 'Reverse' : 'Forward'})
+              </button>
+            </div>
           )}
 
           {tripStatus === 'active' && (
@@ -908,29 +965,106 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
           </div>
         </div>
 
-        {/* Real Live GPS Tracking Map */}
+        {/* Real Live GPS Tracking Map & Dedicated Driver Copilot Mode (Task 8) */}
         {tripStatus === 'active' && (
-          <div className="glass-card" style={{ padding: '8px', height: '220px' }}>
-            <MapContainer 
-              center={busCoordinates} 
-              zoom={13} 
-              scrollWheelZoom={false}
-            >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              />
-              {stops.map(st => (
-                <Marker key={st.id} position={[st.latitude, st.longitude]} icon={activeStopIcon}>
-                  <Popup>Stop #{st.sequence_order}: {st.name}</Popup>
-                </Marker>
-              ))}
-              {currentLocation.latitude && currentLocation.longitude && (
-                <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={driverBusIcon}>
-                  <Popup>Your Bus (Speed: {Math.round(currentLocation.speed)} km/h)</Popup>
-                </Marker>
-              )}
-            </MapContainer>
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Navigation size={14} color="var(--accent-cyan)" />
+                <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--accent-cyan)' }}>
+                  {navMode === 'copilot' ? 'Turn-by-Turn Stop Focus' : 'Route Map View'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', padding: '2px', border: '1px solid var(--border-color)' }}>
+                <button
+                  type="button"
+                  onClick={() => setNavMode('overview')}
+                  style={{
+                    padding: '2px 8px', fontSize: '10px', fontWeight: '700', borderRadius: '4px', border: 'none',
+                    background: navMode === 'overview' ? 'var(--accent-cyan)' : 'transparent',
+                    color: navMode === 'overview' ? '#000' : 'var(--text-secondary)', cursor: 'pointer'
+                  }}
+                >
+                  Map
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNavMode('copilot')}
+                  style={{
+                    padding: '2px 8px', fontSize: '10px', fontWeight: '700', borderRadius: '4px', border: 'none',
+                    background: navMode === 'copilot' ? 'var(--accent-cyan)' : 'transparent',
+                    color: navMode === 'copilot' ? '#000' : 'var(--text-secondary)', cursor: 'pointer'
+                  }}
+                >
+                  Stop Focus
+                </button>
+              </div>
+            </div>
+
+            {navMode === 'copilot' ? (
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--accent-cyan)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '800' }}>
+                      NEXT PICKUP STOP (#{activeStopIndex + 1} of {stops.length})
+                    </span>
+                    <h3 style={{ fontSize: '18px', fontWeight: '800', margin: '4px 0 0 0', color: 'var(--text-primary)' }}>
+                      {activeStop?.name || 'Campus Gate / Terminal'}
+                    </h3>
+                  </div>
+                  <span style={{ fontSize: '11px', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', padding: '3px 8px', borderRadius: '8px', fontWeight: '700' }}>
+                    {activeStop?.scheduled_time || 'On Route'}
+                  </span>
+                </div>
+
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '11px' }}>
+                  <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>Boarding at this stop:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {attendance.filter(st => st.pickup_stop_id === activeStop?.id && (st.effective_status || st.status) === 'absent').length === 0 ? (
+                      <span style={{ color: 'var(--text-muted)' }}>✓ No pending students at this stop</span>
+                    ) : (
+                      attendance.filter(st => st.pickup_stop_id === activeStop?.id && (st.effective_status || st.status) === 'absent').map(st => (
+                        <span key={st.student_id} style={{ background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', padding: '2px 6px', borderRadius: '4px', fontWeight: '600' }}>
+                          {st.name} ({st.roll_number})
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                  <button onClick={handleReachStop} className="btn-primary" style={{ padding: '10px', fontSize: '12px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <CheckCircle size={16} /> Arrived at Stop
+                  </button>
+                  <button onClick={handleLeaveStop} className="btn-secondary" style={{ padding: '10px', fontSize: '12px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <CornerUpRight size={16} /> Depart Stop
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ height: '220px', borderRadius: '8px', overflow: 'hidden' }}>
+                <MapContainer 
+                  center={busCoordinates} 
+                  zoom={13} 
+                  scrollWheelZoom={false}
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  />
+                  {stops.map(st => (
+                    <Marker key={st.id} position={[st.latitude, st.longitude]} icon={activeStopIcon}>
+                      <Popup>Stop #{st.sequence_order}: {st.name}</Popup>
+                    </Marker>
+                  ))}
+                  {currentLocation.latitude && currentLocation.longitude && (
+                    <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={driverBusIcon}>
+                      <Popup>Your Bus (Speed: {Math.round(currentLocation.speed)} km/h)</Popup>
+                    </Marker>
+                  )}
+                </MapContainer>
+              </div>
+            )}
           </div>
         )}
 

@@ -801,8 +801,8 @@ export function createAdminRouter() {
     if (validationErr) return res.status(400).json({ error: validationErr });
 
     try {
-      const lat = latitude ? parseFloat(latitude) : 12.9716;
-      const lng = longitude ? parseFloat(longitude) : 77.5946;
+      const lat = latitude ? parseFloat(latitude) : 18.5204;
+      const lng = longitude ? parseFloat(longitude) : 73.8567;
       const seq = sequenceOrder ? parseInt(sequenceOrder, 10) : 1;
 
       const resDb = await db.run(
@@ -821,8 +821,8 @@ export function createAdminRouter() {
     if (validationErr) return res.status(400).json({ error: validationErr });
 
     try {
-      const lat = latitude ? parseFloat(latitude) : 12.9716;
-      const lng = longitude ? parseFloat(longitude) : 77.5946;
+      const lat = latitude ? parseFloat(latitude) : 18.5204;
+      const lng = longitude ? parseFloat(longitude) : 73.8567;
       const seq = sequenceOrder ? parseInt(sequenceOrder, 10) : 1;
 
       await db.run(

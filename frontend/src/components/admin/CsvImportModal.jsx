@@ -14,8 +14,8 @@ export default function CsvImportModal({
   if (!isCsvModalOpen) return null;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-      <div className="glass-card" style={{ width: '580px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+      <div className="glass-card" style={{ width: 'min(95vw, 580px)', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
         <h3 style={{ fontSize: '18px', fontWeight: '700' }}>CSV Database Importer</h3>
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
           Input comma-separated values (One student per line):<br/>
