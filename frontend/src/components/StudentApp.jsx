@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   MapPin, Clock, Navigation, AlertTriangle, HelpCircle, 
   CreditCard, QrCode, FileText, Send, User, LogOut, CheckCircle2, ShieldAlert,
-  Bell, BellRing, Volume2, VolumeX, Camera, Lock, Unlock, Check, Sparkles
+  Bell, BellRing, Volume2, VolumeX, Camera, Lock, Unlock, Check, Sparkles,
+  CalendarCheck, Calendar as CalendarIcon, PieChart, ChevronLeft, ChevronRight, CheckCircle
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -140,6 +141,9 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   // Student Attendance Records & Real Receipt State
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState(null);
+  const [attendanceSubView, setAttendanceSubView] = useState('pie'); // 'pie' (Option 1) or 'calendar' (Option 2)
+  const [calendarViewDate, setCalendarViewDate] = useState(new Date());
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
 
@@ -157,29 +161,67 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_BASE = isDev ? 'ws://localhost:5001' : `${wsProtocol}//${window.location.host}`;
 
-  // Native Web Audio Synthesizer for 10-Min Alarm Bell
+  // High-Impact Web Audio Emergency Siren Synthesizer + Mobile Haptics
   const playAlarmTone = () => {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const playTone = (freq, start, duration) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, ctx.currentTime);
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + duration);
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+
+      // Dynamics compressor for maximum loudness, presence and punch without clipping
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.setValueAtTime(-14, ctx.currentTime);
+      compressor.knee.setValueAtTime(30, ctx.currentTime);
+      compressor.ratio.setValueAtTime(12, ctx.currentTime);
+      compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+      compressor.release.setValueAtTime(0.2, ctx.currentTime);
+      compressor.connect(ctx.destination);
+
+      const masterGain = ctx.createGain();
+      masterGain.gain.setValueAtTime(0.85, ctx.currentTime);
+      masterGain.connect(compressor);
+
+      // Multi-tone Emergency Warble Burst
+      const createSirenPulse = (startTime, duration, baseFreq, peakFreq) => {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const pulseGain = ctx.createGain();
+
+        osc1.type = 'sawtooth';
+        osc2.type = 'square';
+
+        // Rapid dual pitch frequency warble sweep
+        osc1.frequency.setValueAtTime(baseFreq, ctx.currentTime + startTime);
+        osc1.frequency.linearRampToValueAtTime(peakFreq, ctx.currentTime + startTime + duration * 0.5);
+        osc1.frequency.linearRampToValueAtTime(baseFreq, ctx.currentTime + startTime + duration);
+
+        osc2.frequency.setValueAtTime(baseFreq * 1.5, ctx.currentTime + startTime);
+        osc2.frequency.linearRampToValueAtTime(peakFreq * 1.5, ctx.currentTime + startTime + duration * 0.5);
+        osc2.frequency.linearRampToValueAtTime(baseFreq * 1.5, ctx.currentTime + startTime + duration);
+
+        pulseGain.gain.setValueAtTime(0, ctx.currentTime + startTime);
+        pulseGain.gain.linearRampToValueAtTime(0.7, ctx.currentTime + startTime + 0.04);
+        pulseGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + startTime + duration);
+
+        osc1.connect(pulseGain);
+        osc2.connect(pulseGain);
+        pulseGain.connect(masterGain);
+
+        osc1.start(ctx.currentTime + startTime);
+        osc2.start(ctx.currentTime + startTime);
+        osc1.stop(ctx.currentTime + startTime + duration);
+        osc2.stop(ctx.currentTime + startTime + duration);
       };
 
-      const now = 0;
-      // High-tech notification chord chime
-      playTone(659.25, now, 0.15); // E5
-      playTone(987.77, now, 0.15); // B5
-      playTone(1318.51, now + 0.18, 0.2); // E6
-      playTone(1760.00, now + 0.38, 0.35); // A6
+      // 3 Rapid urgent burst pulses
+      createSirenPulse(0, 0.22, 880, 1320);
+      createSirenPulse(0.24, 0.22, 987, 1480);
+      createSirenPulse(0.48, 0.38, 1174, 1760);
+
+      // Mobile haptic vibration alert pattern
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([400, 100, 400, 100, 500]);
+      }
     } catch (e) {
       console.warn('Audio tone synthesis error:', e);
     }
@@ -192,7 +234,7 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
     if (alarmInterval.current) clearInterval(alarmInterval.current);
     alarmInterval.current = setInterval(() => {
       playAlarmTone();
-    }, 1600);
+    }, 1800);
   };
 
   const stopAlarm = () => {
@@ -1063,81 +1105,464 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
               </div>
             </div>
 
-            {/* Student Personal Attendance History Log */}
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Student Personal Pass Info Card */}
+            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px' }}>
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '700', margin: 0 }}>Attendance Log & Calendar</h4>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>View overall pie analytics & calendar breakdown</span>
+              </div>
+              <button 
+                onClick={() => setActiveTab('attendance')} 
+                className="btn-primary" 
+                style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <CalendarCheck size={14} /> View Attendance
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: DEDICATED STUDENT ATTENDANCE SECTION */}
+        {activeTab === 'attendance' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            
+            {/* Header & 2-Option View Switcher */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <h4 style={{ fontSize: '13px', fontWeight: '700', margin: 0 }}>My Boarding & Attendance Log</h4>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Official scan verification records</span>
+                  <h3 style={{ fontSize: '16px', fontWeight: '800', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <CalendarCheck size={18} color="var(--accent-cyan)" /> My Attendance Center
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    Transit boarding verification & attendance records
+                  </span>
                 </div>
                 {attendanceStats && (
                   <span style={{
-                    fontSize: '11px',
+                    fontSize: '11.5px',
                     fontWeight: '800',
-                    padding: '3px 8px',
+                    padding: '3px 10px',
                     borderRadius: '12px',
-                    background: attendanceStats.attendanceRate >= 75 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                    color: attendanceStats.attendanceRate >= 75 ? 'var(--accent-emerald)' : 'var(--accent-rose)',
-                    border: '1px solid ' + (attendanceStats.attendanceRate >= 75 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)')
+                    background: (attendanceStats.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                    color: (attendanceStats.attendanceRate || 100) >= 75 ? 'var(--accent-emerald)' : 'var(--accent-rose)',
+                    border: '1px solid ' + ((attendanceStats.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)')
                   }}>
-                    {attendanceStats.attendanceRate}% Attendance
+                    {attendanceStats.attendanceRate || 100}% Present
                   </span>
                 )}
               </div>
 
-              {attendanceStats && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px' }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--accent-emerald)' }}>{attendanceStats.presentTrips}</div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Boarded</span>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--accent-amber)' }}>{attendanceStats.absentTrips}</div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Absent</span>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--accent-rose)' }}>{attendanceStats.optedOutTrips}</div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Opted Out</span>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
-                {attendanceRecords.length === 0 ? (
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
-                    No boarding logs recorded yet. Scan bus QR to check in.
-                  </div>
-                ) : (
-                  attendanceRecords.map(rec => (
-                    <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--bg-card)', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
-                      <div>
-                        <div style={{ fontWeight: '600' }}>{rec.route_name || 'Transit Route'}</div>
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                          {rec.scanned_at ? new Date(rec.scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : (rec.trip_date || 'Recent')}
-                        </span>
-                      </div>
-                      <div>
-                        {rec.status === 'present' && (
-                          <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--accent-emerald)', background: 'rgba(16,185,129,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
-                            ● Boarded
-                          </span>
-                        )}
-                        {rec.status === 'absent' && (
-                          <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--accent-amber)', background: 'rgba(245,158,11,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
-                            ● Absent
-                          </span>
-                        )}
-                        {rec.status === 'not_coming' && (
-                          <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--accent-rose)', background: 'rgba(244,63,94,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
-                            ● Opted-Out
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
+              {/* 2 View Switcher Tabs (Option 1: Pie Chart / Option 2: Monthly Calendar) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: 'rgba(0,0,0,0.25)', padding: '4px', borderRadius: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setAttendanceSubView('pie')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 6px',
+                    fontSize: '11.5px',
+                    fontWeight: '700',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: attendanceSubView === 'pie' ? 'var(--accent-cyan)' : 'transparent',
+                    color: attendanceSubView === 'pie' ? '#000' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <PieChart size={14} /> Option 1: Pie Chart
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttendanceSubView('calendar')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 6px',
+                    fontSize: '11.5px',
+                    fontWeight: '700',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: attendanceSubView === 'calendar' ? 'var(--accent-cyan)' : 'transparent',
+                    color: attendanceSubView === 'calendar' ? '#000' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <CalendarIcon size={14} /> Option 2: Calendar
+                </button>
               </div>
             </div>
+
+            {/* OPTION 1: PIE CHART & OVERALL STATS */}
+            {attendanceSubView === 'pie' && (
+              <>
+                {/* Visual SVG Donut/Pie Chart */}
+                <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px', gap: '16px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    Term Attendance Breakdown
+                  </span>
+                  
+                  {(() => {
+                    const present = attendanceStats?.presentTrips || (attendanceRecords.filter(r => r.status === 'present').length) || 0;
+                    const absent = attendanceStats?.absentTrips || (attendanceRecords.filter(r => r.status === 'absent').length) || 0;
+                    const optedOut = attendanceStats?.optedOutTrips || (attendanceRecords.filter(r => r.status === 'not_coming').length) || 0;
+                    const total = (present + absent + optedOut) || 1;
+                    
+                    const rate = Math.round((present / total) * 100);
+                    const circumference = 2 * Math.PI * 52; // ~326.7
+                    const presentDash = (present / total) * circumference;
+                    const absentDash = (absent / total) * circumference;
+                    const optedOutDash = (optedOut / total) * circumference;
+
+                    return (
+                      <div style={{ position: 'relative', width: '160px', height: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg width="160" height="160" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)' }}>
+                          {/* Background Track */}
+                          <circle
+                            cx="70"
+                            cy="70"
+                            r="52"
+                            fill="transparent"
+                            stroke="rgba(255,255,255,0.06)"
+                            strokeWidth="14"
+                          />
+                          {/* Present Arc (Green) */}
+                          <circle
+                            cx="70"
+                            cy="70"
+                            r="52"
+                            fill="transparent"
+                            stroke="#10b981"
+                            strokeWidth="14"
+                            strokeDasharray={`${presentDash} ${circumference}`}
+                            strokeDashoffset={0}
+                            strokeLinecap="round"
+                          />
+                          {/* Absent Arc (Red) */}
+                          <circle
+                            cx="70"
+                            cy="70"
+                            r="52"
+                            fill="transparent"
+                            stroke="#ef4444"
+                            strokeWidth="14"
+                            strokeDasharray={`${absentDash} ${circumference}`}
+                            strokeDashoffset={-presentDash}
+                          />
+                          {/* Opted-Out Arc (Amber) */}
+                          <circle
+                            cx="70"
+                            cy="70"
+                            r="52"
+                            fill="transparent"
+                            stroke="#f59e0b"
+                            strokeWidth="14"
+                            strokeDasharray={`${optedOutDash} ${circumference}`}
+                            strokeDashoffset={-(presentDash + absentDash)}
+                          />
+                        </svg>
+                        <div style={{ position: 'absolute', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                          <span style={{ fontSize: '24px', fontWeight: '800', color: rate >= 75 ? '#10b981' : '#ef4444' }}>
+                            {rate}%
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Attendance
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 3 Metric Pills */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', width: '100%' }}>
+                    <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#10b981' }}>
+                        {attendanceStats?.presentTrips || attendanceRecords.filter(r => r.status === 'present').length || 0}
+                      </div>
+                      <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: '600' }}>● Boarded (Present)</span>
+                    </div>
+                    <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#ef4444' }}>
+                        {attendanceStats?.absentTrips || attendanceRecords.filter(r => r.status === 'absent').length || 0}
+                      </div>
+                      <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: '600' }}>● Absent</span>
+                    </div>
+                    <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#f59e0b' }}>
+                        {attendanceStats?.optedOutTrips || attendanceRecords.filter(r => r.status === 'not_coming').length || 0}
+                      </div>
+                      <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: '600' }}>● Opted-Out</span>
+                    </div>
+                  </div>
+
+                  {/* Transit Compliance Banner */}
+                  <div style={{
+                    width: '100%',
+                    background: (attendanceStats?.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                    border: '1px solid ' + ((attendanceStats?.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'),
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '11.5px'
+                  }}>
+                    {(attendanceStats?.attendanceRate || 100) >= 75 ? (
+                      <>
+                        <CheckCircle size={16} color="#10b981" />
+                        <span style={{ color: 'var(--text-primary)' }}>
+                          <b>Pass in Good Standing:</b> Attendance exceeds 75% required threshold.
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle size={16} color="#ef4444" />
+                        <span style={{ color: 'var(--text-primary)' }}>
+                          <b>Low Attendance Warning:</b> Below 75% requirement. Regularize scans.
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Recent Boarding Log */}
+                <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', margin: 0 }}>Recent Boarding Log</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                    {attendanceRecords.length === 0 ? (
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
+                        No past boarding scans recorded.
+                      </span>
+                    ) : (
+                      attendanceRecords.slice(0, 10).map((r, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--bg-card)', borderRadius: '6px', fontSize: '11.5px' }}>
+                          <div>
+                            <span style={{ fontWeight: '600' }}>{r.route_name || 'Route Link'}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>
+                              {r.scanned_at ? new Date(r.scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : (r.trip_date || 'Recent')}
+                            </span>
+                          </div>
+                          <span style={{
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            fontSize: '10.5px',
+                            fontWeight: '700',
+                            background: r.status === 'present' ? 'rgba(16,185,129,0.15)' : r.status === 'absent' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                            color: r.status === 'present' ? '#10b981' : r.status === 'absent' ? '#ef4444' : '#f59e0b'
+                          }}>
+                            {r.status === 'present' ? '● Boarded' : r.status === 'absent' ? '● Absent' : '● Opted-Out'}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* OPTION 2: MONTHLY COLOR-CODED CALENDAR */}
+            {attendanceSubView === 'calendar' && (
+              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px' }}>
+                {/* Month Navigator Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date(calendarViewDate);
+                      d.setMonth(d.getMonth() - 1);
+                      setCalendarViewDate(d);
+                    }}
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span style={{ fontSize: '14px', fontWeight: '800' }}>
+                    {calendarViewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date(calendarViewDate);
+                      d.setMonth(d.getMonth() + 1);
+                      setCalendarViewDate(d);
+                    }}
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+
+                {/* Day of Week Headers */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, dIdx) => (
+                    <span key={dIdx} style={{ fontSize: '10.5px', fontWeight: '700', color: 'var(--text-muted)' }}>
+                      {day}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Calendar Days Matrix */}
+                {(() => {
+                  const year = calendarViewDate.getFullYear();
+                  const month = calendarViewDate.getMonth();
+                  const firstDayIndex = new Date(year, month, 1).getDay();
+                  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                  const cells = [];
+                  // Empty padding cells before first day of month
+                  for (let i = 0; i < firstDayIndex; i++) {
+                    cells.push({ empty: true, key: `empty-${i}` });
+                  }
+                  // Day cells
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const record = attendanceRecords.find(r => {
+                      if (!r.scanned_at && !r.recorded_at && !r.trip_date) return false;
+                      const rDate = (r.scanned_at || r.recorded_at || r.trip_date).split('T')[0];
+                      return rDate === dateStr;
+                    });
+                    cells.push({
+                      dayNum: d,
+                      dateStr,
+                      record,
+                      status: record?.status || null,
+                      isWeekend: (new Date(year, month, d).getDay() === 0 || new Date(year, month, d).getDay() === 6),
+                      key: `day-${d}`
+                    });
+                  }
+
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
+                      {cells.map(c => {
+                        if (c.empty) {
+                          return <div key={c.key} style={{ height: '38px' }}></div>;
+                        }
+
+                        let bg = 'rgba(255,255,255,0.03)';
+                        let color = 'var(--text-muted)';
+                        let border = '1px solid var(--border-color)';
+                        let shadow = 'none';
+
+                        if (c.status === 'present') {
+                          bg = '#10b981';
+                          color = '#fff';
+                          border = '1px solid #10b981';
+                          shadow = '0 2px 8px rgba(16,185,129,0.35)';
+                        } else if (c.status === 'absent') {
+                          bg = '#ef4444';
+                          color = '#fff';
+                          border = '1px solid #ef4444';
+                          shadow = '0 2px 8px rgba(239,68,68,0.35)';
+                        } else if (c.status === 'not_coming') {
+                          bg = '#f59e0b';
+                          color = '#fff';
+                          border = '1px solid #f59e0b';
+                        } else if (c.isWeekend) {
+                          bg = 'rgba(255,255,255,0.015)';
+                          color = 'var(--text-muted)';
+                          border = '1px dashed rgba(255,255,255,0.06)';
+                        }
+
+                        const isSelected = selectedCalendarDay?.dateStr === c.dateStr;
+
+                        return (
+                          <div
+                            key={c.key}
+                            onClick={() => setSelectedCalendarDay(c)}
+                            style={{
+                              height: '38px',
+                              borderRadius: '8px',
+                              background: bg,
+                              color: color,
+                              border: isSelected ? '2px solid var(--accent-cyan)' : border,
+                              boxShadow: shadow,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '12px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              transform: isSelected ? 'scale(1.06)' : 'none',
+                              transition: 'transform 0.15s ease'
+                            }}
+                          >
+                            <span>{c.dayNum}</span>
+                            {c.status === 'present' && <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#fff', marginTop: '1px' }}></div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* Calendar Legend Bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '10px', fontSize: '11px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#10b981' }}></div>
+                    <span>Present (Green)</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#ef4444' }}></div>
+                    <span>Absent (Red)</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-color)' }}></div>
+                    <span>No Transit (Grey)</span>
+                  </div>
+                </div>
+
+                {/* Selected Day Inspector Card */}
+                {selectedCalendarDay && (
+                  <div style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--accent-cyan)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    fontSize: '12px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ color: 'var(--accent-cyan)' }}>
+                        📅 Date: {selectedCalendarDay.dateStr}
+                      </strong>
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '10px',
+                        fontSize: '10.5px',
+                        fontWeight: '700',
+                        background: selectedCalendarDay.status === 'present' ? 'rgba(16,185,129,0.15)' : selectedCalendarDay.status === 'absent' ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
+                        color: selectedCalendarDay.status === 'present' ? '#10b981' : selectedCalendarDay.status === 'absent' ? '#ef4444' : 'var(--text-secondary)'
+                      }}>
+                        {selectedCalendarDay.status ? selectedCalendarDay.status.toUpperCase() : (selectedCalendarDay.isWeekend ? 'WEEKEND' : 'NO TRIP')}
+                      </span>
+                    </div>
+                    {selectedCalendarDay.record ? (
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <div>Route: <b>{selectedCalendarDay.record.route_name || profile?.route_name || 'Assigned Route'}</b></div>
+                        <div>Bus Unit: <b>Bus {selectedCalendarDay.record.bus_number || profile?.bus_number || '101'}</b></div>
+                        <div>Stop: <b>{selectedCalendarDay.record.stop_name || profile?.stop_name || 'Pickup Point'}</b></div>
+                        {selectedCalendarDay.record.scanned_at && (
+                          <div>Checked in: <b>{new Date(selectedCalendarDay.record.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b></div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        No transit activity or scan recorded on this day.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1295,6 +1720,10 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
         <button className={`nav-button ${activeTab === 'tracking' ? 'active' : ''}`} onClick={() => setActiveTab('tracking')}>
           <MapPin size={18} />
           <span>Live Map</span>
+        </button>
+        <button className={`nav-button ${activeTab === 'attendance' ? 'active' : ''}`} onClick={() => setActiveTab('attendance')}>
+          <CalendarCheck size={18} />
+          <span>Attendance</span>
         </button>
         <button className={`nav-button ${activeTab === 'fees' ? 'active' : ''}`} onClick={() => setActiveTab('fees')}>
           <CreditCard size={18} />

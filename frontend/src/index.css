@@ -592,12 +592,14 @@ h1, h2, h3, h4, h5, h6 {
 .table-responsive {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: 10px;
   border: 1px solid var(--border-color);
   background: var(--bg-surface-solid);
 }
 .premium-table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   text-align: left;
 }
@@ -610,6 +612,7 @@ h1, h2, h3, h4, h5, h6 {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
 }
 .premium-table td {
   padding: 13px 16px;
@@ -617,6 +620,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
   font-size: 13px;
   vertical-align: middle;
+  white-space: nowrap;
 }
 .premium-table tr:last-child td {
   border-bottom: none;

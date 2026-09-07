@@ -113,9 +113,9 @@ export function createAdminRouter() {
       `;
       const params = [];
 
-      if (date) {
-        params.push(date);
-        query += ` AND (a.timestamp::text LIKE ($${params.length} || '%') OR a.timestamp::date = $${params.length}::date)`;
+      if (date && date.trim()) {
+        params.push(date.trim());
+        query += ` AND (a.timestamp::text LIKE ($${params.length} || '%'))`;
       }
       if (routeId) {
         params.push(parseInt(routeId, 10));
@@ -130,10 +130,80 @@ export function createAdminRouter() {
         query += ` AND a.status = $${params.length}`;
       }
 
-      query += ` ORDER BY a.timestamp DESC, a.id DESC LIMIT 200`;
+      query += ` ORDER BY a.timestamp DESC, a.id DESC LIMIT 300`;
 
       const records = await db.query(query, params);
       res.json(records);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2b. Admin Student Attendance Summary & Live Route Breakdown
+  router.get('/attendance/summary', async (req, res, next) => {
+    try {
+      const todayDate = new Date().toISOString().split('T')[0];
+      
+      // Get all active routes and buses with student assignments
+      const routes = await db.query(`
+        SELECT 
+          r.id as route_id,
+          r.name as route_name,
+          b.id as bus_id,
+          b.bus_number,
+          COUNT(s.user_id) as total_students
+        FROM routes r
+        LEFT JOIN buses b ON b.id = (SELECT bus_id FROM trips WHERE route_id = r.id ORDER BY id DESC LIMIT 1)
+        LEFT JOIN students s ON s.route_id = r.id
+        GROUP BY r.id, r.name, b.id, b.bus_number
+        ORDER BY r.id ASC
+      `);
+
+      // Today's attendance counts per route
+      const todayLogs = await db.query(`
+        SELECT 
+          COALESCE(t.route_id, s.route_id) as route_id,
+          a.status,
+          COUNT(*) as count
+        FROM attendance a
+        JOIN students s ON a.student_id = s.user_id
+        LEFT JOIN trips t ON a.trip_id = t.id
+        WHERE a.timestamp::text LIKE ($1 || '%')
+        GROUP BY COALESCE(t.route_id, s.route_id), a.status
+      `, [todayDate]);
+
+      // Overall Student Attendance Rates
+      const studentRates = await db.query(`
+        SELECT 
+          s.user_id,
+          s.name,
+          s.roll_number,
+          st.name as stop_name,
+          r.name as route_name,
+          b.bus_number,
+          COUNT(a.id) as total_trips,
+          COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
+          COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as absent_count,
+          COUNT(CASE WHEN a.status = 'not_coming' THEN 1 END) as not_coming_count,
+          CASE 
+            WHEN COUNT(a.id) > 0 THEN ROUND((COUNT(CASE WHEN a.status = 'present' THEN 1 END)::numeric / COUNT(a.id)::numeric) * 100)
+            ELSE 100 
+          END as attendance_rate
+        FROM students s
+        LEFT JOIN stops st ON s.pickup_stop_id = st.id
+        LEFT JOIN routes r ON s.route_id = r.id
+        LEFT JOIN buses b ON s.bus_id = b.id
+        LEFT JOIN attendance a ON s.user_id = a.student_id
+        GROUP BY s.user_id, s.name, s.roll_number, st.name, r.name, b.bus_number
+        ORDER BY s.user_id ASC
+      `);
+
+      res.json({
+        todayDate,
+        routes,
+        todayLogs,
+        studentRates
+      });
     } catch (err) {
       next(err);
     }
@@ -453,44 +523,72 @@ export function createAdminRouter() {
       const errors = [];
       const generatedCredentials = [];
 
+      // Fetch all valid stops for fuzzy lookup and error reporting
+      const allStops = await db.query('SELECT id, route_id, name FROM stops ORDER BY route_id, sequence_order ASC');
+      const stopNamesList = allStops.map(s => s.name).join(', ');
+
       await db.withTransaction(async (tx) => {
         for (let i = 0; i < students.length; i++) {
           const s = students[i];
           if (!s || typeof s !== 'object') continue;
 
-          if (!s.email || !s.name || !s.rollNumber || !s.password || !s.password.trim()) {
+          // Header line auto-skip
+          if (
+            (s.name && s.name.toLowerCase().includes('full name')) ||
+            (s.email && s.email.toLowerCase().includes('email')) ||
+            (s.rollNumber && s.rollNumber.toLowerCase().includes('roll'))
+          ) {
+            continue;
+          }
+
+          if (!s.email || !s.name || !s.rollNumber) {
             errors.push({
               row: i + 1,
               name: s.name || 'Unknown',
               email: s.email || 'Unknown',
-              error: 'Missing required fields (Full Name, Email, Roll Number, and Password are required).'
+              error: 'Missing required fields: Full Name, Email, and Roll Number are required.'
             });
             continue;
           }
 
           const cleanEmail = s.email.trim().toLowerCase();
 
-          // 1. Resolve Pickup Stop, Route, and Bus (case-insensitive, trimmed)
+          // 1. Resolve Pickup Stop, Route, and Bus (smart case-insensitive + fuzzy matching)
           let pickupStopId = null;
           let routeId = null;
           let busId = null;
 
-          const pickupName = s.pickupPoint || s.pickupStopName || s.pickup_point;
-          if (pickupName && typeof pickupName === 'string' && pickupName.trim()) {
-            const cleanPickupName = pickupName.trim().toLowerCase();
-            const stopMatch = await tx.get(
-              'SELECT id, route_id, name FROM stops WHERE LOWER(name) = $1 LIMIT 1',
-              [cleanPickupName]
-            );
+          const pickupRaw = s.pickupPoint || s.pickupStopName || s.pickup_point || s.pickupStopId;
+          if (pickupRaw && typeof pickupRaw === 'string' && pickupRaw.trim()) {
+            const cleanPickup = pickupRaw.trim().toLowerCase();
+            
+            // 1a: Exact match
+            let stopMatch = allStops.find(st => st.name.trim().toLowerCase() === cleanPickup);
+            
+            // 1b: Substring or containment match
+            if (!stopMatch) {
+              stopMatch = allStops.find(st => {
+                const sName = st.name.trim().toLowerCase();
+                return sName.includes(cleanPickup) || cleanPickup.includes(sName);
+              });
+            }
+
+            // 1c: Numeric ID match
+            if (!stopMatch && !isNaN(parseInt(cleanPickup, 10))) {
+              const numId = parseInt(cleanPickup, 10);
+              stopMatch = allStops.find(st => st.id === numId);
+            }
+
             if (!stopMatch) {
               errors.push({
                 row: i + 1,
                 name: s.name,
                 email: cleanEmail,
-                error: `Pickup point '${pickupName.trim()}' does not match any existing stop.`
+                error: `Pickup stop '${pickupRaw.trim()}' not found. Available stops: [${stopNamesList}]`
               });
               continue;
             }
+
             pickupStopId = stopMatch.id;
             routeId = stopMatch.route_id;
 
@@ -502,22 +600,10 @@ export function createAdminRouter() {
               const anyBus = await tx.get('SELECT id FROM buses ORDER BY id ASC LIMIT 1');
               busId = anyBus ? anyBus.id : null;
             }
-          } else if (s.pickupStopId) {
-            const stopMatch = await tx.get(
-              'SELECT id, route_id, name FROM stops WHERE id = $1',
-              [parseInt(s.pickupStopId, 10)]
-            );
-            if (!stopMatch) {
-              errors.push({
-                row: i + 1,
-                name: s.name,
-                email: cleanEmail,
-                error: `Pickup stop ID '${s.pickupStopId}' does not exist.`
-              });
-              continue;
-            }
-            pickupStopId = stopMatch.id;
-            routeId = stopMatch.route_id;
+          } else if (allStops.length > 0) {
+            // Default fallback to first stop if none provided
+            pickupStopId = allStops[0].id;
+            routeId = allStops[0].route_id;
             const trip = await tx.get('SELECT bus_id FROM trips WHERE route_id = $1 LIMIT 1', [routeId]);
             busId = trip?.bus_id || (await tx.get('SELECT id FROM buses ORDER BY id ASC LIMIT 1'))?.id || null;
           } else {
@@ -525,7 +611,7 @@ export function createAdminRouter() {
               row: i + 1,
               name: s.name,
               email: cleanEmail,
-              error: 'Pickup point is required and must match an existing stop.'
+              error: 'No pickup stops registered in system yet. Please configure routes first.'
             });
             continue;
           }
@@ -542,8 +628,8 @@ export function createAdminRouter() {
             continue;
           }
 
-          // 3. Use provided CSV password (hashed with bcrypt) and insert user
-          const rawPassword = s.password.trim();
+          // 3. Password handling (use provided CSV password or default fallback)
+          const rawPassword = (s.password && s.password.trim()) ? s.password.trim() : `Vesa@${s.rollNumber.trim().replace(/[^a-zA-Z0-9]/g, '')}`;
           const passwordHash = await bcrypt.hash(rawPassword, 10);
           const qrPass = 'QR_PASS_' + s.rollNumber.trim().toUpperCase();
 
@@ -562,7 +648,7 @@ export function createAdminRouter() {
               busId,
               routeId,
               pickupStopId,
-              (s.emergencyContact && s.emergencyContact.trim()) || '+1 555-0100',
+              (s.emergencyContact && s.emergencyContact.trim()) || '+91 9876543210',
               qrPass
             ]
           );
@@ -575,8 +661,9 @@ export function createAdminRouter() {
 
           importedCount++;
           generatedCredentials.push({
+            name: s.name.trim(),
             email: cleanEmail,
-            password: rawPassword,
+            rollNumber: s.rollNumber.trim(),
             temporaryPassword: rawPassword
           });
         }

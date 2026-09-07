@@ -428,17 +428,26 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
 
   const handleImportCSV = async () => {
     if (!csvText.trim()) return;
-    const lines = csvText.split('\n');
+    const lines = csvText.split(/\r?\n/);
     const importList = [];
     for (const line of lines) {
-      if (!line.trim()) continue;
-      const parts = line.split(',');
-      if (parts.length >= 5) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Skip header lines
+      if (
+        trimmed.toLowerCase().startsWith('name') ||
+        trimmed.toLowerCase().startsWith('full name') ||
+        trimmed.toLowerCase().includes('roll number')
+      ) {
+        continue;
+      }
+      const parts = trimmed.split(',');
+      if (parts.length >= 3) {
         importList.push({
           name: parts[0]?.trim() || '',
           email: parts[1]?.trim() || '',
           rollNumber: parts[2]?.trim() || '',
-          emergencyContact: parts[3]?.trim() || '',
+          emergencyContact: parts[3]?.trim() || '+91 9876543210',
           pickupPoint: parts[4]?.trim() || '',
           password: parts[5]?.trim() || ''
         });
@@ -446,7 +455,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
     }
 
     if (importList.length === 0) {
-      alert('No valid student rows found. Please check CSV format.');
+      alert('No valid student rows found. Please check CSV format (Name, Email, Roll Number, Contact, Pickup Stop, Password).');
       return;
     }
 
@@ -956,6 +965,10 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
             analytics={analytics}
             maintenanceRecs={maintenanceRecs}
             triggerExport={triggerExport}
+            setActiveMenu={setActiveMenu}
+            buses={buses}
+            routes={routes}
+            liveTrips={liveTrips}
           />
         )}
 
@@ -1103,6 +1116,7 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
           csvText={csvText}
           setCsvText={setCsvText}
           handleImportCSV={handleImportCSV}
+          routes={routes}
         />
 
         <BulkStopsModal
