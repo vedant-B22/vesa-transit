@@ -1,39 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  BarChart2, Users, Truck, Route as RouteIcon, AlertTriangle, ShieldAlert, Shield,
-  Plus, Edit, Trash2, Upload, Search, Bell, Download, Check, Wrench,
-  Camera, QrCode, MapPin, X, Eye, Phone, Mail, FileText, CheckCircle, Navigation,
-  UserCheck, Calendar, Filter, RefreshCw
-} from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import L from 'leaflet';
-import QRCodeImage from './LocalQRCode';
-import ThemeToggle from './ThemeToggle';
-
-const adminBusIcon = L.divIcon({
-  className: 'admin-bus-marker',
-  html: `<div style="
-    width: 30px;
-    height: 30px;
-    background: #eab308;
-    border: 3px solid #fff;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 0 12px rgba(234, 179, 8, 0.6);
-  ">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5">
-      <rect x="3" y="4" width="18" height="12" rx="2" />
-      <circle cx="7" cy="20" r="2" />
-      <circle cx="17" cy="20" r="2" />
-    </svg>
-  </div>`,
-  iconSize: [30, 30]
-});
+import { ShieldAlert } from 'lucide-react';
+import AdminSidebar from './admin/AdminSidebar';
+import DashboardOverview from './admin/DashboardOverview';
+import LiveTrackingMap from './admin/LiveTrackingMap';
+import AttendanceManagement from './admin/AttendanceManagement';
+import StudentManagement from './admin/StudentManagement';
+import DriverManagement from './admin/DriverManagement';
+import FleetManagement from './admin/FleetManagement';
+import RouteManagement from './admin/RouteManagement';
+import BroadcastAlerts from './admin/BroadcastAlerts';
+import FeeApprovalModal from './admin/FeeApprovalModal';
+import CsvImportModal from './admin/CsvImportModal';
+import BulkStopsModal from './admin/BulkStopsModal';
+import BusScannerModal from './admin/BusScannerModal';
 
 export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) {
   const [activeMenu, setActiveMenu] = useState('dashboard');
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [stats, setStats] = useState({
     activeTrips: 0,
     totalStudents: 0,
@@ -909,62 +892,15 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)', color: 'var(--text-primary)' }}>
       {/* Admin Sidebar Navigation */}
-      <div style={{ width: '270px', background: 'var(--bg-surface-solid)', borderRight: '1px solid var(--border-color)', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
-        <div>
-          <div className="brand-title">
-            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'var(--accent-cyan-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(6,182,212,0.3)', overflow: 'hidden' }}>
-              <img src="/icons/icon-192.png" alt="VESA Logo" style={{ width: '28px', height: '28px', objectFit: 'contain' }} />
-            </div>
-            <span>VESA Transit</span>
-          </div>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', display: 'block', paddingLeft: '48px', fontWeight: '500' }}>
-            Operations & Fleet Control
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {[
-            { id: 'dashboard', label: 'Dashboard Control', icon: <BarChart2 size={16} /> },
-            { id: 'tracking', label: 'Live Tracking Map', icon: <Navigation size={16} /> },
-            { id: 'attendance', label: 'Student Attendance', icon: <UserCheck size={16} /> },
-            { id: 'students', label: 'Students Console', icon: <Users size={16} /> },
-            { id: 'drivers', label: 'Drivers Register', icon: <Users size={16} /> },
-            { id: 'buses', label: 'Fleet Registry', icon: <Wrench size={16} /> },
-            { id: 'routes', label: 'Route Planners & Stops', icon: <RouteIcon size={16} /> },
-            { id: 'broadcast', label: 'Alert Broadcasting', icon: <Bell size={16} /> }
-          ].map(item => {
-            const isActive = activeMenu === item.id;
-            return (
-              <button 
-                key={item.id}
-                onClick={() => setActiveMenu(item.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '12px', padding: '11px 14px',
-                  background: isActive ? 'var(--accent-cyan-light)' : 'transparent',
-                  border: isActive ? '1px solid rgba(6,182,212,0.3)' : '1px solid transparent',
-                  borderRadius: '10px', 
-                  color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-                  fontSize: '13.5px', fontWeight: isActive ? '700' : '500', 
-                  cursor: 'pointer', textAlign: 'left',
-                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                }}
-              >
-                <div style={{ color: isActive ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
-                  {item.icon}
-                </div>
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {toggleTheme && <ThemeToggle theme={theme} onToggle={toggleTheme} />}
-          <button onClick={onLogout} className="btn-secondary" style={{ width: '100%', borderColor: 'rgba(244,63,94,0.3)', color: 'var(--accent-rose)', fontSize: '13px' }}>
-            Logout Admin
-          </button>
-        </div>
-      </div>
+      <AdminSidebar
+        activeMenu={activeMenu}
+        setActiveMenu={setActiveMenu}
+        onLogout={onLogout}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        isMobileOpen={isMobileOpen}
+        setIsMobileOpen={setIsMobileOpen}
+      />
 
       {/* Main Panel Content */}
       <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
@@ -994,1883 +930,177 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
 
         {/* MENU 1: DASHBOARD */}
         {activeMenu === 'dashboard' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-            {/* KPI grid */}
-            <div className="admin-grid">
-              {[
-                { label: 'Active Trips', value: stats.activeTrips, color: 'var(--accent-cyan)' },
-                { label: 'Total Enrolled Students', value: stats.totalStudents, color: 'var(--accent-indigo)' },
-                { label: 'Licensed Drivers', value: stats.totalDrivers, color: 'var(--accent-indigo)' },
-                { label: 'Active Transit Buses', value: stats.totalBuses, color: 'var(--accent-cyan)' },
-                { label: 'Delayed Shifts', value: stats.delayedRoutes, color: 'var(--accent-amber)' },
-                { label: 'Dues Pending', value: `₹${stats.pendingFees}`, color: 'var(--accent-rose)' }
-              ].map((stat, i) => (
-                <div key={i} className="glass-card admin-card-stat" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{stat.label}</span>
-                  <h2 style={{ fontSize: '28px', fontWeight: '800', color: stat.color }}>{stat.value}</h2>
-                </div>
-              ))}
-            </div>
-
-            {/* Custom SVG Charts Panel */}
-            <div className="admin-grid">
-              <div className="glass-card" style={{ gridColumn: 'span 8' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '24px' }}>Ridership Tracking (Daily Log)</h3>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '200px', padding: '0 20px', borderBottom: '2px solid var(--border-color)' }}>
-                  {analytics.map((an, idx) => (
-                    <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: '8px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--accent-cyan)' }}>{an.daily_ridership}</span>
-                      <div style={{ width: '32px', height: `${(an.daily_ridership / 200) * 150}px`, background: 'linear-gradient(180deg, var(--accent-cyan) 0%, rgba(6,182,212,0.1) 100%)', borderRadius: '4px 4px 0 0', minHeight: '10px' }}></div>
-                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{an.date.split('-')[2]} Jul</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Fee Collection gauge */}
-              <div className="glass-card" style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '8px' }}>Revenue & Fee Collection</h3>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Overall collection status for this term.</span>
-                </div>
-                <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                  <div style={{ fontSize: '36px', fontWeight: '800', color: 'var(--accent-emerald)' }}>
-                    {stats.feeCollectionPercentage !== undefined ? `${stats.feeCollectionPercentage}%` : '0%'}
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Target Collected</span>
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '10px', fontSize: '12px' }}>
-                    <div><span style={{ color: 'var(--text-secondary)' }}>Collected: </span><strong style={{ color: 'var(--accent-emerald)' }}>₹{Number(stats.totalFeesPaid || 0).toLocaleString('en-IN')}</strong></div>
-                    <div><span style={{ color: 'var(--text-secondary)' }}>Target: </span><strong style={{ color: 'var(--accent-cyan)' }}>₹{Number(stats.totalFeesExpected || 0).toLocaleString('en-IN')}</strong></div>
-                  </div>
-                </div>
-                <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: `${Math.min(100, Math.max(0, stats.feeCollectionPercentage || 0))}%`, height: '100%', background: 'var(--accent-emerald)', transition: 'width 0.4s ease' }}></div>
-                </div>
-              </div>
-            </div>
-
-            {/* AI Predictive Maintenance Checkups */}
-            <div className="glass-card">
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Wrench size={18} color="var(--accent-cyan)" /> AI Predictive Maintenance Recommendations
-              </h3>
-              <div className="table-responsive">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Bus Unit</th>
-                      <th>Mileage (Odometer)</th>
-                      <th>Service Forecast</th>
-                      <th>Risk Indicator</th>
-                      <th>Diagnostics Message</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {maintenanceRecs.map(rec => (
-                      <tr key={rec.busId}>
-                        <td style={{ fontWeight: '700' }}>{rec.busNumber}</td>
-                        <td>{Math.round(rec.totalMileage)} km</td>
-                        <td>In {rec.remainingKm} km</td>
-                        <td>
-                          <span style={{
-                            padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                            background: rec.priority === 'Critical' || rec.priority === 'High' ? 'rgba(244,63,94,0.1)' : 'rgba(255,255,255,0.05)',
-                            color: rec.priority === 'Critical' || rec.priority === 'High' ? 'var(--accent-rose)' : 'var(--text-secondary)'
-                          }}>
-                            {rec.priority}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{rec.message}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Analytical Reports Downloader */}
-            <div className="glass-card">
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Reports & Analytics Export Center</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-                {[
-                  { title: 'Attendance Log', type: 'attendance' },
-                  { title: 'Route Performance', type: 'route' },
-                  { title: 'Driver Operations', type: 'driver' },
-                  { title: 'Fee Collection', type: 'fees' }
-                ].map((rep, idx) => (
-                  <div key={idx} style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '600' }}>{rep.title}</span>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <button onClick={() => triggerExport('pdf', rep.type)} style={{ background: 'none', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                        <Download size={10} /> PDF
-                      </button>
-                      <button onClick={() => triggerExport('excel', rep.type)} style={{ background: 'none', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                        <Download size={10} /> Excel
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <DashboardOverview
+            stats={stats}
+            analytics={analytics}
+            maintenanceRecs={maintenanceRecs}
+            triggerExport={triggerExport}
+          />
         )}
 
         {/* MENU 2: LIVE TRACKING */}
         {activeMenu === 'tracking' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div className="glass-card" style={{ height: '480px', padding: '12px' }}>
-              <MapContainer 
-                center={[12.9716, 77.5946]} 
-                zoom={12} 
-                scrollWheelZoom={false}
-              >
-                <TileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                />
-                
-                {liveTrips.map(trip => {
-                  if (!trip.current_lat) return null;
-                  return (
-                    <Marker key={trip.id} position={[trip.current_lat, trip.current_lng]} icon={adminBusIcon}>
-                      <Popup>
-                        <div style={{ color: '#000', fontSize: '12px' }}>
-                          <div style={{ fontWeight: '700' }}>Bus: {trip.bus_number} ({trip.route_name})</div>
-                          <div>Driver: {trip.driver_name}</div>
-                          <div>Speed: {Math.round(trip.speed)} km/h</div>
-                          <div>ETA: {trip.eta_mins} mins</div>
-                          <div>Checked-in Students: {trip.student_count}</div>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  );
-                })}
-              </MapContainer>
-            </div>
-
-            {/* Active Trips telemetry table */}
-            <div className="glass-card">
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Active Transit Fleet Details</h3>
-              <div className="table-responsive">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Bus Unit</th>
-                      <th>Route Name</th>
-                      <th>Driver Name</th>
-                      <th>Current Position</th>
-                      <th>Speed</th>
-                      <th>Route ETA</th>
-                      <th>Checked-In</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {liveTrips.length === 0 ? (
-                      <tr>
-                        <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px' }}>No active transit routes on road.</td>
-                      </tr>
-                    ) : (
-                      liveTrips.map(trip => (
-                        <tr key={trip.id}>
-                          <td style={{ fontWeight: '700' }}>{trip.bus_number}</td>
-                          <td>{trip.route_name}</td>
-                          <td>{trip.driver_name}</td>
-                          <td>{trip.current_stop_name || 'En Route'} → {trip.next_stop_name || 'Terminal'}</td>
-                          <td>{Math.round(trip.speed)} km/h</td>
-                          <td style={{ color: 'var(--accent-amber)', fontWeight: '700' }}>{trip.eta_mins} mins</td>
-                          <td>{trip.student_count} passengers</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <LiveTrackingMap
+            liveTrips={liveTrips}
+          />
         )}
 
         {/* MENU: STUDENT ATTENDANCE */}
         {activeMenu === 'attendance' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {/* Header & Controls */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h2 style={{ fontSize: '20px', fontWeight: '800', margin: 0 }}>Student Attendance & Verification Log</h2>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  Live boarding scans and attendance records across all college transit routes.
-                </span>
-              </div>
-              <button 
-                onClick={fetchAttendanceList} 
-                className="btn-secondary" 
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px' }}
-                disabled={attendanceLoading}
-              >
-                <RefreshCw size={14} className={attendanceLoading ? 'animate-spin' : ''} />
-                Refresh Logs
-              </button>
-            </div>
-
-            {/* Attendance Metric Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-              <div className="glass-card" style={{ padding: '16px 20px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Total Records Logged</span>
-                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--text-primary)' }}>
-                  {attendanceList.length}
-                </div>
-              </div>
-              <div className="glass-card" style={{ padding: '16px 20px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Boarded / Present</span>
-                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-emerald)' }}>
-                  {attendanceList.filter(a => a.attendance_status === 'present').length}
-                </div>
-              </div>
-              <div className="glass-card" style={{ padding: '16px 20px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Awaiting / Absent</span>
-                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-amber)' }}>
-                  {attendanceList.filter(a => a.attendance_status === 'absent').length}
-                </div>
-              </div>
-              <div className="glass-card" style={{ padding: '16px 20px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Not Coming (Opted-Out)</span>
-                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-rose)' }}>
-                  {attendanceList.filter(a => a.attendance_status === 'not_coming').length}
-                </div>
-              </div>
-            </div>
-
-            {/* Attendance Scanning Window Override Control */}
-            <div className="glass-card" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderLeft: '4px solid var(--accent-cyan)' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Shield size={18} color="var(--accent-cyan)" />
-                  <h3 style={{ fontSize: '15px', fontWeight: '700', margin: 0 }}>Attendance Scanning Window Enforcement</h3>
-                  <span style={{
-                    fontSize: '11px',
-                    fontWeight: '700',
-                    padding: '2px 8px',
-                    borderRadius: '12px',
-                    background: attendanceWindowStatus?.isAllowed ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                    color: attendanceWindowStatus?.isAllowed ? 'var(--accent-emerald)' : 'var(--accent-rose)'
-                  }}>
-                    {attendanceWindowStatus?.isAllowed ? '● Scanning OPEN' : '● Scanning LOCKED'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Controls when students can scan the bus QR code to log digital attendance. Scheduled hours: Morning 07:00–09:30 AM & Evening 04:30–07:00 PM.
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => updateAttendanceWindowSetting('active')}
-                  disabled={attendanceWindowSaving}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    borderRadius: '6px',
-                    border: '1px solid ' + (attendanceWindowMode === 'active' ? 'var(--accent-emerald)' : 'var(--border-color)'),
-                    background: attendanceWindowMode === 'active' ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.03)',
-                    color: attendanceWindowMode === 'active' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Active (24/7 Open)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateAttendanceWindowSetting('auto')}
-                  disabled={attendanceWindowSaving}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    borderRadius: '6px',
-                    border: '1px solid ' + (attendanceWindowMode === 'auto' ? 'var(--accent-cyan)' : 'var(--border-color)'),
-                    background: attendanceWindowMode === 'auto' ? 'rgba(6,182,212,0.2)' : 'rgba(255,255,255,0.03)',
-                    color: attendanceWindowMode === 'auto' ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Auto (Trip Hours)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateAttendanceWindowSetting('inactive')}
-                  disabled={attendanceWindowSaving}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    borderRadius: '6px',
-                    border: '1px solid ' + (attendanceWindowMode === 'inactive' ? 'var(--accent-rose)' : 'var(--border-color)'),
-                    background: attendanceWindowMode === 'inactive' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.03)',
-                    color: attendanceWindowMode === 'inactive' ? 'var(--accent-rose)' : 'var(--text-secondary)',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Inactive (Locked)
-                </button>
-              </div>
-            </div>
-
-            {/* Filter Bar */}
-            <div className="glass-card" style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', padding: '16px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)', fontWeight: '700', fontSize: '13px' }}>
-                <Filter size={16} /> Filters:
-              </div>
-
-              {/* Date Filter */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Calendar size={14} color="var(--text-secondary)" />
-                <input 
-                  type="date" 
-                  className="input-field" 
-                  value={attendanceFilterDate} 
-                  onChange={e => setAttendanceFilterDate(e.target.value)} 
-                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
-                />
-              </div>
-
-              {/* Route Filter */}
-              <div>
-                <select 
-                  className="input-field" 
-                  value={attendanceFilterRoute} 
-                  onChange={e => setAttendanceFilterRoute(e.target.value)}
-                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
-                >
-                  <option value="">All Routes</option>
-                  {routes.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Bus Filter */}
-              <div>
-                <select 
-                  className="input-field" 
-                  value={attendanceFilterBus} 
-                  onChange={e => setAttendanceFilterBus(e.target.value)}
-                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
-                >
-                  <option value="">All Buses</option>
-                  {buses.map(b => (
-                    <option key={b.id} value={b.id}>Bus {b.bus_number} ({b.registration_number})</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Status Filter */}
-              <div>
-                <select 
-                  className="input-field" 
-                  value={attendanceFilterStatus} 
-                  onChange={e => setAttendanceFilterStatus(e.target.value)}
-                  style={{ padding: '6px 12px', fontSize: '13px', background: 'var(--bg-main)' }}
-                >
-                  <option value="">All Statuses</option>
-                  <option value="present">Boarded / Present</option>
-                  <option value="absent">Awaiting / Absent</option>
-                  <option value="not_coming">Not Coming</option>
-                </select>
-              </div>
-
-              {/* Clear filters */}
-              {(attendanceFilterDate || attendanceFilterRoute || attendanceFilterBus || attendanceFilterStatus) && (
-                <button 
-                  onClick={() => {
-                    setAttendanceFilterDate('');
-                    setAttendanceFilterRoute('');
-                    setAttendanceFilterBus('');
-                    setAttendanceFilterStatus('');
-                  }}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--accent-rose)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <X size={14} /> Reset Filters
-                </button>
-              )}
-            </div>
-
-            {/* Attendance Records Table */}
-            <div className="glass-card">
-              <div className="table-responsive">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Student</th>
-                      <th>Roll Number</th>
-                      <th>Route / Stop</th>
-                      <th>Bus Unit</th>
-                      <th>Verification Time</th>
-                      <th>Status</th>
-                      <th>Emergency Contact</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attendanceLoading ? (
-                      <tr>
-                        <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
-                          Loading attendance records...
-                        </td>
-                      </tr>
-                    ) : attendanceList.length === 0 ? (
-                      <tr>
-                        <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
-                          No attendance records found for the selected filters.
-                        </td>
-                      </tr>
-                    ) : (
-                      attendanceList.map((record) => (
-                        <tr key={record.attendance_id}>
-                          <td>
-                            <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{record.student_name}</div>
-                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>ID #{record.student_id}</span>
-                          </td>
-                          <td>
-                            <span style={{ fontFamily: 'monospace', fontSize: '12px', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
-                              {record.roll_number}
-                            </span>
-                          </td>
-                          <td>
-                            <div>{record.route_name || 'Unassigned'}</div>
-                            <span style={{ fontSize: '11px', color: 'var(--accent-cyan)' }}>
-                              Stop: {record.stop_name || 'Standard Stop'}
-                            </span>
-                          </td>
-                          <td>
-                            {record.bus_number ? (
-                              <div>
-                                <strong>Bus {record.bus_number}</strong>
-                                <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{record.registration_number}</div>
-                              </div>
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)' }}>-</span>
-                            )}
-                          </td>
-                          <td>
-                            {record.recorded_at ? (
-                              (() => {
-                                const d = new Date(record.recorded_at);
-                                const isValid = !isNaN(d.getTime());
-                                return isValid ? (
-                                  <div>
-                                    <div style={{ fontWeight: '600' }}>{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                                      {d.toLocaleDateString()}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div>{String(record.recorded_at)}</div>
-                                );
-                              })()
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)' }}>-</span>
-                            )}
-                          </td>
-                          <td>
-                            {record.attendance_status === 'present' && (
-                              <span style={{
-                                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: '700',
-                                background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', border: '1px solid rgba(16,185,129,0.3)'
-                              }}>
-                                <CheckCircle size={12} /> Boarded
-                              </span>
-                            )}
-                            {record.attendance_status === 'absent' && (
-                              <span style={{
-                                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: '700',
-                                background: 'rgba(245,158,11,0.15)', color: 'var(--accent-amber)', border: '1px solid rgba(245,158,11,0.3)'
-                              }}>
-                                Awaiting / Absent
-                              </span>
-                            )}
-                            {record.attendance_status === 'not_coming' && (
-                              <span style={{
-                                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: '700',
-                                background: 'rgba(244,63,94,0.15)', color: 'var(--accent-rose)', border: '1px solid rgba(244,63,94,0.3)'
-                              }}>
-                                <X size={12} /> Not Coming
-                              </span>
-                            )}
-                          </td>
-                          <td>
-                            <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <Phone size={12} color="var(--text-secondary)" />
-                              {record.emergency_contact || 'N/A'}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <AttendanceManagement
+            attendanceList={attendanceList}
+            attendanceLoading={attendanceLoading}
+            fetchAttendanceList={fetchAttendanceList}
+            routes={routes}
+            buses={buses}
+            attendanceFilterDate={attendanceFilterDate}
+            setAttendanceFilterDate={setAttendanceFilterDate}
+            attendanceFilterRoute={attendanceFilterRoute}
+            setAttendanceFilterRoute={setAttendanceFilterRoute}
+            attendanceFilterBus={attendanceFilterBus}
+            setAttendanceFilterBus={setAttendanceFilterBus}
+            attendanceFilterStatus={attendanceFilterStatus}
+            setAttendanceFilterStatus={setAttendanceFilterStatus}
+            attendanceWindowStatus={attendanceWindowStatus}
+            attendanceWindowMode={attendanceWindowMode}
+            attendanceWindowSaving={attendanceWindowSaving}
+            updateAttendanceWindowSetting={updateAttendanceWindowSetting}
+          />
         )}
 
         {/* MENU 3: STUDENTS MANAGEMENT */}
         {activeMenu === 'students' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            
-            {/* Split layout: Form and Batch Utilities */}
-            <div className="admin-grid">
-              {/* Form creation */}
-              <div className="glass-card" style={{ gridColumn: 'span 4' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Add Enrolled Student</h3>
-                <form onSubmit={handleAddStudent} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <input type="text" className="input-field" placeholder="Full Name" value={studentForm.name} onChange={e => setStudentForm({...studentForm, name: e.target.value})} required />
-                  <input type="email" className="input-field" placeholder="College Email (@college.edu)" value={studentForm.email} onChange={e => setStudentForm({...studentForm, email: e.target.value})} required />
-                  <input type="text" className="input-field" placeholder="Roll Number (e.g. VESA-2024-ST99)" value={studentForm.rollNumber} onChange={e => setStudentForm({...studentForm, rollNumber: e.target.value})} required />
-                  <input type="text" className="input-field" placeholder="Emergency Contact Phone" value={studentForm.emergencyContact} onChange={e => setStudentForm({...studentForm, emergencyContact: e.target.value})} required />
-                  
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    <div>
-                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Assigned Bus</label>
-                      <select 
-                        className="input-field"
-                        value={studentForm.busId}
-                        onChange={e => setStudentForm({...studentForm, busId: parseInt(e.target.value)})}
-                        style={{ background: 'var(--bg-main)', marginTop: '4px' }}
-                      >
-                        {buses.map(b => (
-                          <option key={b.id} value={b.id}>{b.bus_number}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Assigned Route</label>
-                      <select 
-                        className="input-field"
-                        value={studentForm.routeId}
-                        onChange={e => setStudentForm({...studentForm, routeId: parseInt(e.target.value)})}
-                        style={{ background: 'var(--bg-main)', marginTop: '4px' }}
-                      >
-                        {routes.map(r => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <button type="submit" className="btn-primary" style={{ marginTop: '8px' }}>
-                    <Plus size={16} /> Enroll Student
-                  </button>
-                </form>
-              </div>
-
-              {/* CSV Import / Bus pass scan check */}
-              <div style={{ gridColumn: 'span 8', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {/* CSV triggers */}
-                <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Import Student Database (CSV)</h3>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Batch import students list with auto-matching pickup stops.</span>
-                  </div>
-                  <button onClick={() => setIsCsvModalOpen(true)} className="btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Upload size={14} /> Open CSV Importer
-                  </button>
-                </div>
-
-                {/* QR Pass Verification Scanner */}
-                <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>Student QR Pass Verification Terminal</h3>
-                    <button 
-                      onClick={() => setIsScanning(!isScanning)} 
-                      className="btn-primary" 
-                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <Camera size={14} /> {isScanning ? 'Stop Camera' : 'Live Camera Scanner'}
-                    </button>
-                  </div>
-
-                  {isScanning && (
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '12px', background: '#000', overflow: 'hidden' }}>
-                      <div id="qr-reader" style={{ width: '100%' }}></div>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      placeholder="Input student pass code (e.g. QR_PASS_ST01)..." 
-                      value={scannedPassCode}
-                      onChange={e => setScannedPassCode(e.target.value)}
-                    />
-                    <button onClick={() => handleVerifyQRPass(scannedPassCode)} className="btn-primary" style={{ width: '160px' }}>Verify Pass</button>
-                  </div>
-                  {scanResult && (
-                    <div style={{
-                      padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
-                      background: scanResult.success ? 'rgba(16,185,129,0.1)' : 'rgba(244,63,94,0.1)',
-                      color: scanResult.success ? 'var(--accent-emerald)' : 'var(--accent-rose)',
-                      border: '1px solid ' + (scanResult.success ? 'var(--accent-emerald)' : 'var(--accent-rose)')
-                    }}>
-                      {scanResult.message}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Students roster grid */}
-            <div className="glass-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Student Database & Fee Approval Registry</h3>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  Total Pending Fees: <b style={{ color: 'var(--accent-amber)' }}>₹{stats.pendingFees || 0}</b>
-                </span>
-              </div>
-              <div className="table-responsive">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Student Name</th>
-                      <th>Roll Number</th>
-                      <th>Email</th>
-                      <th>Bus Line</th>
-                      <th>Pickup Stop</th>
-                      <th>Fee Status</th>
-                      <th>Pending Due</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {students.map(s => (
-                      <tr key={s.user_id}>
-                        <td style={{ fontWeight: '700' }}>{s.name}</td>
-                        <td>{s.roll_number}</td>
-                        <td>{s.email}</td>
-                        <td>{s.bus_number || 'Unassigned'}</td>
-                        <td>{s.stop_name || 'Unassigned'}</td>
-                        <td>
-                          <span style={{
-                            padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                            background: s.fee_status === 'paid' ? 'rgba(16,185,129,0.1)' : s.fee_status === 'partial' ? 'rgba(245,158,11,0.1)' : 'rgba(244,63,94,0.1)',
-                            color: s.fee_status === 'paid' ? 'var(--accent-emerald)' : s.fee_status === 'partial' ? 'var(--accent-amber)' : 'var(--accent-rose)'
-                          }}>
-                            {s.fee_status?.toUpperCase()}
-                          </span>
-                        </td>
-                        <td style={{ fontWeight: '600', color: (s.pending_amount > 0 ? 'var(--accent-amber)' : 'var(--text-secondary)') }}>
-                          ₹{s.pending_amount !== undefined ? s.pending_amount : (s.fee_status === 'paid' ? 0 : 5000)}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button 
-                              onClick={() => {
-                                setFeeModalStudent(s);
-                                setFeeAmount(s.pending_amount ? String(s.pending_amount) : '5000');
-                                setFeeStatus('paid');
-                              }} 
-                              className="btn-primary" 
-                              style={{ padding: '4px 10px', fontSize: '11px', width: 'auto' }}
-                              title="Manual Admin Fee Approval"
-                            >
-                              Fee Approval
-                            </button>
-                            <button 
-                              onClick={() => setStudentEditModal({ isOpen: true, data: { ...s } })} 
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
-                              title="Edit Student Profile"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteStudent(s.user_id)} 
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
-                              title="Delete Student"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Student Edit Modal Overlay */}
-            {studentEditModal.isOpen && studentEditModal.data && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '500px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Edit Student Details</h3>
-                    <button onClick={() => setStudentEditModal({ isOpen: false, data: null })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Full Name</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={studentEditModal.data.name || ''} 
-                        onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, name: e.target.value } })} 
-                        required 
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>College Email</label>
-                      <input 
-                        type="email" 
-                        className="input-field" 
-                        value={studentEditModal.data.email || ''} 
-                        onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, email: e.target.value } })} 
-                        required 
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Roll Number</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          value={studentEditModal.data.roll_number || ''} 
-                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, roll_number: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Emergency Contact Phone</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          value={studentEditModal.data.emergency_contact || ''} 
-                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, emergency_contact: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assigned Bus</label>
-                        <select 
-                          className="input-field"
-                          value={studentEditModal.data.bus_id || ''}
-                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, bus_id: e.target.value } })}
-                          style={{ background: 'var(--bg-main)' }}
-                        >
-                          <option value="">Unassigned</option>
-                          {buses.map(b => (
-                            <option key={b.id} value={b.id}>{b.bus_number}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assigned Route</label>
-                        <select 
-                          className="input-field"
-                          value={studentEditModal.data.route_id || ''}
-                          onChange={e => setStudentEditModal({ ...studentEditModal, data: { ...studentEditModal.data, route_id: e.target.value } })}
-                          style={{ background: 'var(--bg-main)' }}
-                        >
-                          <option value="">Unassigned</option>
-                          {routes.map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
-                      <button type="submit" className="btn-primary">Save Changes</button>
-                      <button type="button" onClick={() => setStudentEditModal({ isOpen: false, data: null })} className="btn-secondary">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* Fee Approval Modal Overlay */}
-            {feeModalStudent && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: '700' }}>Admin Fee Payment Approval</h3>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Student: <b>{feeModalStudent.name}</b> ({feeModalStudent.roll_number})
-                    </span>
-                  </div>
-
-                  <form onSubmit={handleMarkFeePaid} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payment Status</label>
-                      <select 
-                        className="input-field"
-                        value={feeStatus}
-                        onChange={e => setFeeStatus(e.target.value)}
-                        style={{ background: 'var(--bg-main)' }}
-                      >
-                        <option value="paid">Paid (Fully Cleared)</option>
-                        <option value="partial">Partial Payment</option>
-                        <option value="pending">Pending / Unpaid</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Amount to Credit (₹)</label>
-                      <input 
-                        type="number"
-                        step="0.01"
-                        className="input-field"
-                        placeholder="e.g. 5000"
-                        value={feeAmount}
-                        onChange={e => setFeeAmount(e.target.value)}
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payment Method / Verification Source</label>
-                      <select 
-                        className="input-field"
-                        value={feePaymentMethod}
-                        onChange={e => setFeePaymentMethod(e.target.value)}
-                        style={{ background: 'var(--bg-main)' }}
-                      >
-                        <option value="Campus Cashier Counter">Campus Cashier Counter</option>
-                        <option value="UPI / QR Payment">UPI / QR Payment</option>
-                        <option value="Bank Direct Deposit / NEFT">Bank Direct Deposit / NEFT</option>
-                        <option value="Official College Cheque">Official College Cheque</option>
-                        <option value="Admin Scholarship / Fee Waiver">Admin Scholarship / Fee Waiver</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Admin Audit Notes (Optional)</label>
-                      <input 
-                        type="text"
-                        className="input-field"
-                        placeholder="Receipt # / Approval reference"
-                        value={feeNotes}
-                        onChange={e => setFeeNotes(e.target.value)}
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
-                      <button type="submit" disabled={feeSubmitting} className="btn-primary">
-                        {feeSubmitting ? 'Recording...' : 'Confirm & Approve Fee'}
-                      </button>
-                      <button type="button" onClick={() => setFeeModalStudent(null)} className="btn-secondary">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* CSV Import Modal Overlay */}
-            {isCsvModalOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '580px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
-                  <h3 style={{ fontSize: '18px', fontWeight: '700' }}>CSV Database Importer</h3>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Input comma-separated values (One student per line):<br/>
-                    <b>Format: Full Name, Email, Roll Number, Contact Number, Pickup Point, Password</b>
-                  </span>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Default Fee Amount (₹)</label>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        placeholder="5000" 
-                        value={defaultFeeAmount} 
-                        onChange={e => setDefaultFeeAmount(e.target.value)} 
-                        min="0"
-                        required 
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Fee Due Date</label>
-                      <input 
-                        type="date" 
-                        className="input-field" 
-                        value={feeDueDate} 
-                        onChange={e => setFeeDueDate(e.target.value)} 
-                        required 
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Student CSV Data</label>
-                    <textarea 
-                      className="input-field" 
-                      rows="6"
-                      value={csvText}
-                      onChange={e => setCsvText(e.target.value)}
-                      placeholder="Alex Mercer, alex@college.edu, VESA-2024-ST01, +91 9876543210, Malleswaram 8th Cross, Password123&#10;Sophia Sterling, sophia@college.edu, VESA-2024-ST02, +91 9876543211, Majestic Hub, SecurePass456"
-                      style={{ resize: 'none', fontFamily: 'monospace', fontSize: '12px' }}
-                    ></textarea>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <button onClick={handleImportCSV} className="btn-primary">Import Batch</button>
-                    <button onClick={() => setIsCsvModalOpen(false)} className="btn-secondary">Cancel</button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <StudentManagement
+            students={students}
+            buses={buses}
+            routes={routes}
+            studentForm={studentForm}
+            setStudentForm={setStudentForm}
+            handleAddStudent={handleAddStudent}
+            setIsCsvModalOpen={setIsCsvModalOpen}
+            isScanning={isScanning}
+            setIsScanning={setIsScanning}
+            scannedPassCode={scannedPassCode}
+            setScannedPassCode={setScannedPassCode}
+            handleVerifyQRPass={handleVerifyQRPass}
+            scanResult={scanResult}
+            stats={stats}
+            setFeeModalStudent={setFeeModalStudent}
+            setFeeAmount={setFeeAmount}
+            setFeeStatus={setFeeStatus}
+            studentEditModal={studentEditModal}
+            setStudentEditModal={setStudentEditModal}
+            handleUpdateStudent={handleUpdateStudent}
+            handleDeleteStudent={handleDeleteStudent}
+          />
         )}
 
         {/* MENU 4: DRIVERS REGISTER */}
         {activeMenu === 'drivers' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Driver Employment Register</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Manage transit drivers, credentials, phone lines, and bus assignments.</span>
-              </div>
-              <button 
-                onClick={() => setDriverModal({
-                  isOpen: true,
-                  mode: 'add',
-                  data: { name: '', email: '', phone: '', licenseNumber: '', activeBusId: '', initialPassword: '' }
-                })}
-                className="btn-primary" 
-                style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                <Plus size={16} /> Add New Driver
-              </button>
-            </div>
-
-            <div className="glass-card">
-              <div className="table-responsive">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Driver Name</th>
-                      <th>Email Address</th>
-                      <th>Phone Line</th>
-                      <th>License Number</th>
-                      <th>Bus Assigned</th>
-                      <th>Status</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {drivers.map(d => (
-                      <tr key={d.user_id}>
-                        <td style={{ fontWeight: '700' }}>{d.name}</td>
-                        <td>{d.email}</td>
-                        <td>{d.phone}</td>
-                        <td>{d.license_number}</td>
-                        <td>{d.bus_number || 'Unassigned'}</td>
-                        <td>
-                          <span style={{
-                            padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                            background: d.status === 'on_trip' ? 'rgba(6,182,212,0.1)' : d.status === 'active' ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.05)',
-                            color: d.status === 'on_trip' ? 'var(--accent-cyan)' : d.status === 'active' ? 'var(--accent-emerald)' : 'var(--text-secondary)'
-                          }}>
-                            {d.status === 'on_trip' ? 'On Road' : d.status === 'active' ? 'Duty Ready' : 'Off duty'}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button 
-                              onClick={() => setDriverModal({
-                                isOpen: true,
-                                mode: 'edit',
-                                data: { user_id: d.user_id, name: d.name, email: d.email, phone: d.phone, licenseNumber: d.license_number, activeBusId: d.active_bus_id || '' }
-                              })}
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
-                              title="Edit Driver"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteDriver(d.user_id)}
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
-                              title="Delete Driver"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Add / Edit Driver Modal */}
-            {driverModal.isOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
-                      {driverModal.mode === 'add' ? 'Add New Transit Driver' : 'Edit Driver Details'}
-                    </h3>
-                    <button onClick={() => setDriverModal({ ...driverModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSaveDriver} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Driver Full Name</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        placeholder="e.g. Ramesh Kumar"
-                        value={driverModal.data.name} 
-                        onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, name: e.target.value } })} 
-                        required 
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Email Address</label>
-                      <input 
-                        type="email" 
-                        className="input-field" 
-                        placeholder="driver@college.edu"
-                        value={driverModal.data.email} 
-                        onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, email: e.target.value } })} 
-                        required 
-                      />
-                    </div>
-
-                    {driverModal.mode === 'add' && (
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Initial Login Password</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="Leave blank to auto-generate or set password"
-                          value={driverModal.data.initialPassword || ''} 
-                          onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, initialPassword: e.target.value } })} 
-                        />
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Phone Number</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="+91 9876543210"
-                          value={driverModal.data.phone} 
-                          onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, phone: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Commercial License Number</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="KA-DL-2022-9901"
-                          value={driverModal.data.licenseNumber} 
-                          onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, licenseNumber: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assign Active Bus</label>
-                      <select 
-                        className="input-field"
-                        value={driverModal.data.activeBusId || ''}
-                        onChange={e => setDriverModal({ ...driverModal, data: { ...driverModal.data, activeBusId: e.target.value } })}
-                        style={{ background: 'var(--bg-main)' }}
-                      >
-                        <option value="">None / Floating Driver</option>
-                        {buses.map(b => (
-                          <option key={b.id} value={b.id}>{b.bus_number} ({b.registration_number})</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
-                      <button type="submit" className="btn-primary">
-                        {driverModal.mode === 'add' ? 'Create Driver Account' : 'Save Changes'}
-                      </button>
-                      <button type="button" onClick={() => setDriverModal({ ...driverModal, isOpen: false })} className="btn-secondary">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
+          <DriverManagement
+            drivers={drivers}
+            buses={buses}
+            driverModal={driverModal}
+            setDriverModal={setDriverModal}
+            handleSaveDriver={handleSaveDriver}
+            handleDeleteDriver={handleDeleteDriver}
+          />
         )}
 
         {/* MENU 5: FLEET REGISTER */}
         {activeMenu === 'buses' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Active Transit Fleet Registry</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Manage bus units, seating capacities, vehicle insurance, and print QR stickers.</span>
-              </div>
-              <button 
-                onClick={() => setBusModal({
-                  isOpen: true,
-                  mode: 'add',
-                  data: { id: null, busNumber: '', registrationNumber: '', capacity: 45, totalMileage: 0, insuranceExpiry: new Date().toISOString().split('T')[0], status: 'active' }
-                })}
-                className="btn-primary" 
-                style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                <Plus size={16} /> Add New Bus
-              </button>
-            </div>
-
-            <div className="glass-card">
-              <div className="table-responsive">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Bus Unit</th>
-                      <th>Registration Plate</th>
-                      <th>Capacity</th>
-                      <th>Mileage (Odometer)</th>
-                      <th>Insurance Renewal</th>
-                      <th>Status</th>
-                      <th>Bus Attendance QR</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {buses.map(b => (
-                      <tr key={b.id}>
-                        <td style={{ fontWeight: '700' }}>{b.bus_number}</td>
-                        <td>{b.registration_number}</td>
-                        <td>{b.capacity} seats</td>
-                        <td>{b.total_mileage} km</td>
-                        <td>{b.insurance_expiry}</td>
-                        <td>
-                          <span style={{
-                            padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                            background: b.status === 'active' ? 'rgba(16,185,129,0.1)' : b.status === 'maintenance' ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.05)',
-                            color: b.status === 'active' ? 'var(--accent-emerald)' : b.status === 'maintenance' ? 'var(--accent-amber)' : 'var(--text-secondary)'
-                          }}>
-                            {b.status}
-                          </span>
-                        </td>
-                        <td>
-                          <button 
-                            onClick={() => setSelectedBusForSticker(b)}
-                            className="btn-secondary"
-                            style={{ padding: '4px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                          >
-                            <QrCode size={14} /> View QR Sticker
-                          </button>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button 
-                              onClick={() => setBusModal({
-                                isOpen: true,
-                                mode: 'edit',
-                                data: {
-                                  id: b.id,
-                                  busNumber: b.bus_number,
-                                  registrationNumber: b.registration_number,
-                                  capacity: b.capacity,
-                                  totalMileage: b.total_mileage,
-                                  insuranceExpiry: b.insurance_expiry,
-                                  status: b.status
-                                }
-                              })}
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
-                              title="Edit Bus"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteBus(b.id)}
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
-                              title="Delete Bus"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Add / Edit Bus Modal */}
-            {busModal.isOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
-                      {busModal.mode === 'add' ? 'Register New Bus Unit' : 'Edit Bus Details'}
-                    </h3>
-                    <button onClick={() => setBusModal({ ...busModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSaveBus} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Bus Unit / Identifier</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="e.g. BUS-105"
-                          value={busModal.data.busNumber} 
-                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, busNumber: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Registration Plate</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="e.g. KA-01-EQ-9921"
-                          value={busModal.data.registrationNumber} 
-                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, registrationNumber: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Seating Capacity</label>
-                        <input 
-                          type="number" 
-                          className="input-field" 
-                          placeholder="45"
-                          value={busModal.data.capacity} 
-                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, capacity: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Mileage (km)</label>
-                        <input 
-                          type="number" 
-                          step="0.1"
-                          className="input-field" 
-                          placeholder="0"
-                          value={busModal.data.totalMileage} 
-                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, totalMileage: e.target.value } })} 
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Insurance Expiry Date</label>
-                        <input 
-                          type="date" 
-                          className="input-field" 
-                          value={busModal.data.insuranceExpiry} 
-                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, insuranceExpiry: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Operational Status</label>
-                        <select 
-                          className="input-field"
-                          value={busModal.data.status}
-                          onChange={e => setBusModal({ ...busModal, data: { ...busModal.data, status: e.target.value } })}
-                          style={{ background: 'var(--bg-main)' }}
-                        >
-                          <option value="active">Active / Operational</option>
-                          <option value="maintenance">Under Maintenance</option>
-                          <option value="inactive">Inactive / Reserve</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
-                      <button type="submit" className="btn-primary">
-                        {busModal.mode === 'add' ? 'Register Bus' : 'Save Changes'}
-                      </button>
-                      <button type="button" onClick={() => setBusModal({ ...busModal, isOpen: false })} className="btn-secondary">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* Bus QR Attendance Sticker Modal */}
-            {selectedBusForSticker && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '400px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center', padding: '28px', border: '2px solid var(--border-color)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)' }}>
-                    <img src="/icons/icon-192.png" alt="VESA" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
-                    <span style={{ fontSize: '13px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                      VESA Transit Bus Scanner Sticker
-                    </span>
-                  </div>
-                  
-                  <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
-                    <QRCodeImage 
-                      value={`VESA_BUS_${selectedBusForSticker.bus_number}`} 
-                      size={220} 
-                    />
-                  </div>
-
-                  <div>
-                    <h2 style={{ fontSize: '24px', fontWeight: '800', margin: '0 0 4px 0', color: '#fff' }}>Bus {selectedBusForSticker.bus_number}</h2>
-                    <span style={{ fontSize: '13px', color: 'var(--accent-amber)', fontWeight: '700' }}>QR Code: VESA_BUS_{selectedBusForSticker.bus_number}</span>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Reg: {selectedBusForSticker.registration_number}</div>
-                  </div>
-
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
-                    Stick this physical QR code badge at the bus entrance door. Students scan this with their live camera on boarding to mark instant digital attendance.
-                  </p>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', width: '100%', marginTop: '8px' }}>
-                    <button onClick={() => window.print()} className="btn-secondary" style={{ padding: '10px', fontSize: '13px', fontWeight: '600' }}>
-                      Print Sticker
-                    </button>
-                    <button onClick={() => setSelectedBusForSticker(null)} className="btn-primary" style={{ padding: '10px', fontSize: '13px', fontWeight: '600' }}>
-                      Close
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <FleetManagement
+            buses={buses}
+            busModal={busModal}
+            setBusModal={setBusModal}
+            handleSaveBus={handleSaveBus}
+            handleDeleteBus={handleDeleteBus}
+            setSelectedBusForSticker={setSelectedBusForSticker}
+          />
         )}
 
         {/* MENU 6: ROUTES & STOPS */}
         {activeMenu === 'routes' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Active Transit Route Planners & Stops</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Create and edit transit routes, configure pickup stops, coordinates, and schedules.</span>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  onClick={() => {
-                    setBulkStopsRouteId(routes[0]?.id ? String(routes[0].id) : '');
-                    setIsBulkStopsModalOpen(true);
-                  }}
-                  className="btn-secondary" 
-                  style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
-                >
-                  <Upload size={16} /> Bulk Import Stops (CSV)
-                </button>
-                <button 
-                  onClick={() => setRouteModal({
-                    isOpen: true,
-                    mode: 'add',
-                    data: { id: null, name: '', startLocation: '', endLocation: '', distanceKm: 15, estimatedDurationMins: 45 }
-                  })}
-                  className="btn-primary" 
-                  style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
-                >
-                  <Plus size={16} /> Add New Route
-                </button>
-              </div>
-            </div>
-
-            <div className="glass-card">
-              <div className="table-responsive">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Route Title</th>
-                      <th>Hub Departure</th>
-                      <th>Campus Arrival</th>
-                      <th>Distance (km)</th>
-                      <th>Est Duration</th>
-                      <th>Pickups Stops</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {routes.map(r => (
-                      <tr key={r.id}>
-                        <td style={{ fontWeight: '700' }}>{r.name}</td>
-                        <td>{r.start_location}</td>
-                        <td>{r.end_location}</td>
-                        <td>{r.distance_km} km</td>
-                        <td>{r.estimated_duration_mins} mins</td>
-                        <td>
-                          <button 
-                            onClick={() => handleOpenManageStops(r)}
-                            className="btn-secondary"
-                            style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            <MapPin size={12} color="var(--accent-cyan)" /> {r.stops_count || 0} Stops (Manage)
-                          </button>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button 
-                              onClick={() => setRouteModal({
-                                isOpen: true,
-                                mode: 'edit',
-                                data: {
-                                  id: r.id,
-                                  name: r.name,
-                                  startLocation: r.start_location,
-                                  endLocation: r.end_location,
-                                  distanceKm: r.distance_km,
-                                  estimatedDurationMins: r.estimated_duration_mins
-                                }
-                              })}
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
-                              title="Edit Route"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteRoute(r.id)}
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
-                              title="Delete Route"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Add / Edit Route Modal */}
-            {routeModal.isOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '480px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>
-                      {routeModal.mode === 'add' ? 'Create Transit Route' : 'Edit Route Details'}
-                    </h3>
-                    <button onClick={() => setRouteModal({ ...routeModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSaveRoute} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Route Name / Title</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        placeholder="e.g. North Hub - Campus Express"
-                        value={routeModal.data.name} 
-                        onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, name: e.target.value } })} 
-                        required 
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Hub Departure (Start)</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="e.g. North Terminal"
-                          value={routeModal.data.startLocation} 
-                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, startLocation: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Campus Arrival (End)</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="e.g. Main Engineering Campus"
-                          value={routeModal.data.endLocation} 
-                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, endLocation: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Distance (km)</label>
-                        <input 
-                          type="number" 
-                          step="0.1"
-                          className="input-field" 
-                          placeholder="15.5"
-                          value={routeModal.data.distanceKm} 
-                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, distanceKm: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Estimated Duration (mins)</label>
-                        <input 
-                          type="number" 
-                          className="input-field" 
-                          placeholder="45"
-                          value={routeModal.data.estimatedDurationMins} 
-                          onChange={e => setRouteModal({ ...routeModal, data: { ...routeModal.data, estimatedDurationMins: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
-                      <button type="submit" className="btn-primary">
-                        {routeModal.mode === 'add' ? 'Create Route' : 'Save Changes'}
-                      </button>
-                      <button type="button" onClick={() => setRouteModal({ ...routeModal, isOpen: false })} className="btn-secondary">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* Manage Stops Drawer / Modal */}
-            {stopsRoute && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '640px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '85vh', overflowY: 'auto' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Manage Stops: {stopsRoute.name}</h3>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Configure pickup stop sequence, scheduled times, and GPS coordinates.</span>
-                    </div>
-                    <button onClick={() => setStopsRoute(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                    <button 
-                      onClick={() => {
-                        setBulkStopsRouteId(String(stopsRoute.id));
-                        setIsBulkStopsModalOpen(true);
-                      }}
-                      className="btn-secondary"
-                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <Upload size={14} /> Bulk CSV Import
-                    </button>
-                    <button 
-                      onClick={() => setStopModal({
-                        isOpen: true,
-                        mode: 'add',
-                        data: { id: null, name: '', latitude: 12.9716, longitude: 77.5946, sequenceOrder: stopsList.length + 1, scheduledTime: '07:30 AM' }
-                      })}
-                      className="btn-primary"
-                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <Plus size={14} /> Add Pickup Stop
-                    </button>
-                  </div>
-
-                  <div className="table-responsive">
-                    <table className="premium-table">
-                      <thead>
-                        <tr>
-                          <th>Seq #</th>
-                          <th>Stop Name</th>
-                          <th>Scheduled Pickup</th>
-                          <th>Coordinates (Lat, Lng)</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {stopsList.length === 0 ? (
-                          <tr>
-                            <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>No pickup stops created yet.</td>
-                          </tr>
-                        ) : (
-                          stopsList.map(stop => (
-                            <tr key={stop.id}>
-                              <td style={{ fontWeight: '700', color: 'var(--accent-cyan)' }}>#{stop.sequence_order}</td>
-                              <td style={{ fontWeight: '600' }}>{stop.name}</td>
-                              <td>{stop.scheduled_time}</td>
-                              <td style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{stop.latitude}, {stop.longitude}</td>
-                              <td>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <button 
-                                    onClick={() => setStopModal({
-                                      isOpen: true,
-                                      mode: 'edit',
-                                      data: {
-                                        id: stop.id,
-                                        name: stop.name,
-                                        latitude: stop.latitude,
-                                        longitude: stop.longitude,
-                                        sequenceOrder: stop.sequence_order,
-                                        scheduledTime: stop.scheduled_time
-                                      }
-                                    })}
-                                    style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '4px' }}
-                                    title="Edit Stop"
-                                  >
-                                    <Edit size={14} />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDeleteStop(stop.id)}
-                                    style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
-                                    title="Delete Stop"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
-                    <button onClick={() => setStopsRoute(null)} className="btn-secondary" style={{ width: 'auto' }}>Close</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Add / Edit Stop Modal */}
-            {stopModal.isOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10001, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '420px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>
-                      {stopModal.mode === 'add' ? 'Add Pickup Stop' : 'Edit Pickup Stop'}
-                    </h3>
-                    <button onClick={() => setStopModal({ ...stopModal, isOpen: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <X size={18} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSaveStop} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div>
-                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Stop Name</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        placeholder="e.g. Navale Bridge / Malleswaram"
-                        value={stopModal.data.name} 
-                        onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, name: e.target.value } })} 
-                        required 
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Sequence Order</label>
-                        <input 
-                          type="number" 
-                          className="input-field" 
-                          placeholder="1"
-                          value={stopModal.data.sequenceOrder} 
-                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, sequenceOrder: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Scheduled Pickup Time</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          placeholder="07:30 AM"
-                          value={stopModal.data.scheduledTime} 
-                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, scheduledTime: e.target.value } })} 
-                          required 
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Latitude</label>
-                        <input 
-                          type="number" 
-                          step="0.0001"
-                          className="input-field" 
-                          value={stopModal.data.latitude} 
-                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, latitude: e.target.value } })} 
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Longitude</label>
-                        <input 
-                          type="number" 
-                          step="0.0001"
-                          className="input-field" 
-                          value={stopModal.data.longitude} 
-                          onChange={e => setStopModal({ ...stopModal, data: { ...stopModal.data, longitude: e.target.value } })} 
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '6px' }}>
-                      <button type="submit" className="btn-primary">Save Stop</button>
-                      <button type="button" onClick={() => setStopModal({ ...stopModal, isOpen: false })} className="btn-secondary">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* Bulk Stops CSV Import Modal Overlay */}
-            {isBulkStopsModalOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-                <div className="glass-card" style={{ width: '600px', background: 'var(--bg-surface-solid)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Bulk Import Route Stops (CSV)</h3>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Import all pickup points with coordinates and schedules for a route in one batch.
-                      </span>
-                    </div>
-                    <button onClick={() => setIsBulkStopsModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleBulkImportStops} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Select Target Transit Route</label>
-                      <select 
-                        className="input-field" 
-                        value={bulkStopsRouteId} 
-                        onChange={e => setBulkStopsRouteId(e.target.value)}
-                        style={{ background: 'var(--bg-main)' }}
-                        required
-                      >
-                        <option value="">-- Choose Route --</option>
-                        {routes.map(r => (
-                          <option key={r.id} value={r.id}>{r.name} ({r.start_location} → {r.end_location})</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div style={{ background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: '8px', padding: '12px', fontSize: '12px', lineHeight: '1.5' }}>
-                      <div style={{ fontWeight: '700', color: 'var(--accent-cyan)', marginBottom: '4px' }}>CSV Format (5 columns per line):</div>
-                      <code style={{ fontSize: '11px', color: 'var(--text-primary)' }}>
-                        Pickup Point Name, Pickup Time, Latitude, Longitude, Sequence Number
-                      </code>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        Example:<br/>
-                        Navale Bridge, 07:15 AM, 12.9716, 77.5946, 1<br/>
-                        Chandani Chowk, 07:30 AM, 12.9810, 77.6010, 2
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Paste CSV Content</label>
-                      <textarea 
-                        className="input-field" 
-                        rows="8" 
-                        placeholder={"Navale Bridge, 07:15 AM, 12.9716, 77.5946, 1\nChandani Chowk, 07:30 AM, 12.9810, 77.6010, 2\nKothrud Stand, 07:45 AM, 12.9920, 77.6100, 3"}
-                        value={bulkStopsCsvText} 
-                        onChange={e => setBulkStopsCsvText(e.target.value)} 
-                        style={{ fontFamily: 'monospace', fontSize: '12px', resize: 'vertical' }}
-                        required
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '6px' }}>
-                      <button type="submit" disabled={bulkStopsLoading} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                        <Upload size={16} /> {bulkStopsLoading ? 'Importing Stops...' : 'Import Stops Batch'}
-                      </button>
-                      <button type="button" onClick={() => setIsBulkStopsModalOpen(false)} className="btn-secondary">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
+          <RouteManagement
+            routes={routes}
+            routeModal={routeModal}
+            setRouteModal={setRouteModal}
+            handleSaveRoute={handleSaveRoute}
+            handleDeleteRoute={handleDeleteRoute}
+            stopsRoute={stopsRoute}
+            setStopsRoute={setStopsRoute}
+            stopsList={stopsList}
+            stopModal={stopModal}
+            setStopModal={setStopModal}
+            handleSaveStop={handleSaveStop}
+            handleDeleteStop={handleDeleteStop}
+            handleOpenManageStops={handleOpenManageStops}
+            setIsBulkStopsModalOpen={setIsBulkStopsModalOpen}
+            setBulkStopsRouteId={setBulkStopsRouteId}
+          />
         )}
 
         {/* MENU 7: ALERTS AND BROADCASTS */}
         {activeMenu === 'broadcast' && (
-          <div className="admin-grid">
-            {/* Form */}
-            <div className="glass-card" style={{ gridColumn: 'span 6' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Dispatch Alert Broadcast Notification</h3>
-              <form onSubmit={handleSendBroadcast} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Recipient Scope</label>
-                  <select className="input-field" value={broadcastType} onChange={e => setBroadcastType(e.target.value)} style={{ background: 'var(--bg-main)' }}>
-                    <option value="all">Entire College Scope</option>
-                    <option value="route">Selected Transit Route</option>
-                    <option value="student">Targeted Student User</option>
-                  </select>
-                </div>
-
-                {broadcastType !== 'all' && (
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Target ID (Route ID or Student User ID)</label>
-                    <input type="number" className="input-field" placeholder="Input target ID..." value={broadcastTargetId} onChange={e => setBroadcastTargetId(e.target.value)} required />
-                  </div>
-                )}
-
-                <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Notification Subject</label>
-                  <input type="text" className="input-field" placeholder="Subject line..." value={broadcastTitle} onChange={e => setBroadcastTitle(e.target.value)} required />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Broadcasting Message Body</label>
-                  <textarea className="input-field" rows="4" placeholder="Notification details..." value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)} style={{ resize: 'none' }} required></textarea>
-                </div>
-
-                <button type="submit" className="btn-primary">
-                  <Bell size={16} /> Broadcast Push Alerts
-                </button>
-              </form>
-            </div>
-
-            {/* Suggestions & Complaints feed */}
-            <div className="glass-card" style={{ gridColumn: 'span 6', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Recent Student Feedback Reports</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {complaints.length === 0 ? (
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No recent reports registered.</span>
-                ) : (
-                  complaints.map(comp => (
-                    <div key={comp.id} style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.01)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{
-                          padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700',
-                          background: comp.category === 'bus_issue' ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.05)',
-                          color: comp.category === 'bus_issue' ? 'var(--accent-amber)' : 'var(--text-primary)'
-                        }}>
-                          {comp.category}
-                        </span>
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Student: {comp.student_name}</span>
-                      </div>
-                      <p style={{ fontSize: '12px', marginTop: '6px', color: 'var(--text-secondary)' }}>{comp.description}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
+          <BroadcastAlerts
+            broadcastType={broadcastType}
+            setBroadcastType={setBroadcastType}
+            broadcastTargetId={broadcastTargetId}
+            setBroadcastTargetId={setBroadcastTargetId}
+            broadcastTitle={broadcastTitle}
+            setBroadcastTitle={setBroadcastTitle}
+            broadcastMsg={broadcastMsg}
+            setBroadcastMsg={setBroadcastMsg}
+            handleSendBroadcast={handleSendBroadcast}
+            complaints={complaints}
+          />
         )}
+
+        {/* Modals */}
+        <FeeApprovalModal
+          feeModalStudent={feeModalStudent}
+          setFeeModalStudent={setFeeModalStudent}
+          feeStatus={feeStatus}
+          setFeeStatus={setFeeStatus}
+          feeAmount={feeAmount}
+          setFeeAmount={setFeeAmount}
+          feePaymentMethod={feePaymentMethod}
+          setFeePaymentMethod={setFeePaymentMethod}
+          feeNotes={feeNotes}
+          setFeeNotes={setFeeNotes}
+          feeSubmitting={feeSubmitting}
+          handleMarkFeePaid={handleMarkFeePaid}
+        />
+
+        <CsvImportModal
+          isCsvModalOpen={isCsvModalOpen}
+          setIsCsvModalOpen={setIsCsvModalOpen}
+          defaultFeeAmount={defaultFeeAmount}
+          setDefaultFeeAmount={setDefaultFeeAmount}
+          feeDueDate={feeDueDate}
+          setFeeDueDate={setFeeDueDate}
+          csvText={csvText}
+          setCsvText={setCsvText}
+          handleImportCSV={handleImportCSV}
+        />
+
+        <BulkStopsModal
+          isBulkStopsModalOpen={isBulkStopsModalOpen}
+          setIsBulkStopsModalOpen={setIsBulkStopsModalOpen}
+          bulkStopsRouteId={bulkStopsRouteId}
+          setBulkStopsRouteId={setBulkStopsRouteId}
+          routes={routes}
+          bulkStopsCsvText={bulkStopsCsvText}
+          setBulkStopsCsvText={setBulkStopsCsvText}
+          bulkStopsLoading={bulkStopsLoading}
+          handleBulkImportStops={handleBulkImportStops}
+        />
+
+        <BusScannerModal
+          selectedBusForSticker={selectedBusForSticker}
+          setSelectedBusForSticker={setSelectedBusForSticker}
+        />
+
       </div>
     </div>
   );
