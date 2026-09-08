@@ -207,6 +207,61 @@ export function createAdminRouter() {
     } catch (err) {
       next(err);
     }
+  // 2c. Admin Manual Attendance Override / Status Update
+  router.post('/attendance/override', async (req, res, next) => {
+    try {
+      const { student_id, attendance_id, status, trip_id } = req.body;
+      if (!student_id && !attendance_id) {
+        return res.status(400).json({ error: 'student_id or attendance_id is required' });
+      }
+      const validStatuses = ['present', 'absent', 'not_coming'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+      }
+
+      if (attendance_id) {
+        await db.run('UPDATE attendance SET status = $1, timestamp = NOW() WHERE id = $2', [status, attendance_id]);
+        broadcast({ type: 'attendance_update', attendance_id, status, student_id });
+        return res.json({ success: true, message: 'Attendance updated successfully' });
+      }
+
+      // If updating by student_id
+      let targetTripId = trip_id;
+      if (!targetTripId) {
+        const student = await db.get('SELECT bus_id, route_id FROM students WHERE user_id = $1', [student_id]);
+        if (student) {
+          const trip = await db.get(
+            `SELECT id FROM trips WHERE (bus_id = $1 OR route_id = $2) ORDER BY start_time DESC LIMIT 1`,
+            [student.bus_id || 1, student.route_id || 1]
+          );
+          if (trip) {
+            targetTripId = trip.id;
+          } else {
+            const newTrip = await db.get(
+              `INSERT INTO trips (bus_id, driver_id, route_id, status, start_time) 
+               VALUES ($1, (SELECT user_id FROM drivers LIMIT 1), $2, 'active', NOW()) RETURNING id`,
+              [student.bus_id || 1, student.route_id || 1]
+            );
+            targetTripId = newTrip?.id || 1;
+          }
+        }
+      }
+
+      if (targetTripId) {
+        await db.run(
+          `INSERT INTO attendance (trip_id, student_id, status, timestamp) 
+           VALUES ($1, $2, $3, NOW()) 
+           ON CONFLICT (trip_id, student_id) 
+           DO UPDATE SET status = EXCLUDED.status, timestamp = NOW()`,
+          [targetTripId, student_id, status]
+        );
+        broadcast({ type: 'attendance_update', student_id, status, trip_id: targetTripId });
+      }
+
+      res.json({ success: true, message: 'Attendance status recorded successfully' });
+    } catch (err) {
+      next(err);
+    }
   });
 
   // 3. Admin Resolve SOS

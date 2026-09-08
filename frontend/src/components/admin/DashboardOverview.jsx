@@ -1,6 +1,6 @@
 import React from 'react';
 import { 
-  Wrench, Download, Navigation, Users, Bus, AlertCircle, 
+  Download, Navigation, Users, Bus, AlertCircle, 
   CheckCircle, ArrowRight, Shield, Bell, TrendingUp, Sparkles,
   CalendarCheck, DollarSign, Activity
 } from 'lucide-react';
@@ -334,62 +334,22 @@ export default function DashboardOverview({
         </div>
       </div>
 
-      {/* 5. AI Predictive Maintenance Recommendations */}
+      {/* 5. Reports & Export Center */}
       <div className="glass-card" style={{ padding: '20px' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Wrench size={18} color="var(--accent-cyan)" /> AI Predictive Maintenance & Fleet Diagnostics
-        </h3>
-        <div className="table-responsive">
-          <table className="premium-table">
-            <thead>
-              <tr>
-                <th>Bus Unit</th>
-                <th>Odometer Mileage</th>
-                <th>Service Forecast</th>
-                <th>Risk Level</th>
-                <th>Diagnostics Recommendation</th>
-              </tr>
-            </thead>
-            <tbody>
-              {maintenanceRecs.length > 0 ? (
-                maintenanceRecs.map(rec => (
-                  <tr key={rec.busId}>
-                    <td style={{ fontWeight: '700' }}>{rec.busNumber}</td>
-                    <td>{Math.round(rec.totalMileage)} km</td>
-                    <td>In {rec.remainingKm} km</td>
-                    <td>
-                      <span style={{
-                        padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700',
-                        background: rec.priority === 'Critical' || rec.priority === 'High' ? 'rgba(244,63,94,0.15)' : 'rgba(255,255,255,0.06)',
-                        color: rec.priority === 'Critical' || rec.priority === 'High' ? 'var(--accent-rose)' : 'var(--text-secondary)'
-                      }}>
-                        {rec.priority}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{rec.message}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '16px' }}>
-                    All vehicles operating in optimal safety range.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>
+              Official Operations & Export Center
+            </h3>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              Download official compliance reports in formatted PDF or Excel spreadsheet formats.
+            </span>
+          </div>
         </div>
-      </div>
-
-      {/* 6. Reports & Export Center */}
-      <div className="glass-card" style={{ padding: '20px' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>
-          Official Operations & Export Center
-        </h3>
         <div className="admin-stat-grid-4">
           {[
-            { title: 'Student Attendance Log', type: 'attendance', desc: 'Daily boarding and scan logs' },
-            { title: 'Route Performance', type: 'route', desc: 'Transit route timings and stops' },
+            { title: 'Student Attendance Log', type: 'attendance', desc: 'Daily boarding and scan verification logs' },
+            { title: 'Route Performance', type: 'route', desc: 'Transit route timings, distance and stops' },
             { title: 'Driver Operations', type: 'driver', desc: 'Driver duty hours and status' },
             { title: 'Fee Collection Records', type: 'fees', desc: 'Tuition transit fee payment log' }
           ].map((rep, idx) => (

@@ -28,30 +28,45 @@ export default function StudentManagement({
   const [routeStops, setRouteStops] = useState([]);
   const [editRouteStops, setEditRouteStops] = useState([]);
 
+  const getAuthToken = () => localStorage.getItem('vesa_token') || localStorage.getItem('token') || '';
+
+  // Auto-set routeId if not yet selected and routes available
+  useEffect(() => {
+    if (routes && routes.length > 0 && !studentForm.routeId) {
+      setStudentForm(prev => ({ ...prev, routeId: routes[0].id }));
+    }
+  }, [routes, studentForm.routeId]);
+
   // Fetch stops for Add Student form route
   useEffect(() => {
-    if (studentForm.routeId) {
-      const token = localStorage.getItem('token') || '';
-      fetch(`/api/admin/routes/${studentForm.routeId}/stops`, {
+    const activeRouteId = studentForm.routeId || (routes && routes[0]?.id);
+    if (activeRouteId) {
+      const token = getAuthToken();
+      fetch(`/api/admin/routes/${activeRouteId}/stops`, {
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
       })
         .then(res => res.json())
         .then(data => {
           if (Array.isArray(data)) {
             setRouteStops(data);
-            if (data.length > 0 && !studentForm.pickupStopId) {
-              setStudentForm(prev => ({ ...prev, pickupStopId: data[0].id }));
+            if (data.length > 0) {
+              setStudentForm(prev => {
+                const stopExists = data.some(st => st.id === Number(prev.pickupStopId));
+                return stopExists ? prev : { ...prev, pickupStopId: data[0].id };
+              });
+            } else {
+              setStudentForm(prev => ({ ...prev, pickupStopId: '' }));
             }
           }
         })
         .catch(err => console.error(err));
     }
-  }, [studentForm.routeId]);
+  }, [studentForm.routeId, routes]);
 
   // Fetch stops for Edit Student modal route
   useEffect(() => {
     if (studentEditModal.data?.route_id) {
-      const token = localStorage.getItem('token') || '';
+      const token = getAuthToken();
       fetch(`/api/admin/routes/${studentEditModal.data.route_id}/stops`, {
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
       })

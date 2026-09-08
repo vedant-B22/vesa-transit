@@ -260,7 +260,15 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
     try {
       const res = await authFetch(`${API_BASE}/admin/buses`);
       const data = await res.json();
-      if (res.ok) setBuses(data);
+      if (res.ok && Array.isArray(data)) {
+        setBuses(data);
+        if (data.length > 0) {
+          setStudentForm(prev => ({
+            ...prev,
+            busId: prev.busId || data[0].id
+          }));
+        }
+      }
     } catch (e) {
       console.error(e);
     }
@@ -270,7 +278,15 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
     try {
       const res = await authFetch(`${API_BASE}/admin/routes`);
       const data = await res.json();
-      if (res.ok) setRoutes(data);
+      if (res.ok && Array.isArray(data)) {
+        setRoutes(data);
+        if (data.length > 0) {
+          setStudentForm(prev => ({
+            ...prev,
+            routeId: prev.routeId || data[0].id
+          }));
+        }
+      }
     } catch (e) {
       console.error(e);
     }

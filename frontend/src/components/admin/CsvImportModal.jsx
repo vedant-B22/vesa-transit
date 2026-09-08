@@ -18,30 +18,30 @@ export default function CsvImportModal({
 
   useEffect(() => {
     if (isCsvModalOpen) {
-      const token = localStorage.getItem('token') || '';
+      const token = localStorage.getItem('vesa_token') || localStorage.getItem('token') || '';
       setLoadingStops(true);
-      fetch('/api/admin/routes/1/stops', {
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-      })
-        .then(res => res.json())
-        .then(async (data1) => {
-          let stopsList = Array.isArray(data1) ? data1 : [];
-          // Also fetch route 2 stops if available
-          try {
-            const res2 = await fetch('/api/admin/routes/2/stops', {
+      
+      const fetchAllRouteStops = async () => {
+        try {
+          const targetRoutes = routes.length > 0 ? routes : [{ id: 1 }, { id: 2 }];
+          const stopPromises = targetRoutes.map(r => 
+            fetch(`/api/admin/routes/${r.id}/stops`, {
               headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-            });
-            const data2 = await res2.json();
-            if (Array.isArray(data2)) {
-              stopsList = [...stopsList, ...data2];
-            }
-          } catch (e) {}
-          setAllStops(stopsList);
-        })
-        .catch(err => console.error(err))
-        .finally(() => setLoadingStops(false));
+            }).then(res => res.json()).catch(() => [])
+          );
+          const results = await Promise.all(stopPromises);
+          const combinedStops = results.flat().filter(s => s && s.id);
+          setAllStops(combinedStops);
+        } catch (e) {
+          console.error('Error loading route stops:', e);
+        } finally {
+          setLoadingStops(false);
+        }
+      };
+
+      fetchAllRouteStops();
     }
-  }, [isCsvModalOpen]);
+  }, [isCsvModalOpen, routes]);
 
   if (!isCsvModalOpen) return null;
 

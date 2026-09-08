@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  RefreshCw, Shield, Filter, Calendar, X, CheckCircle, Phone, Search,
+  RefreshCw, Shield, Filter, Calendar as CalendarIcon, X, CheckCircle, Phone, Search,
   Users, Bus, CheckCircle2, AlertTriangle, ArrowRight, Download, BarChart2,
-  Clock, Sparkles
+  Clock, Sparkles, ChevronLeft, ChevronRight, Check, UserCheck, UserX, AlertCircle
 } from 'lucide-react';
 
 export default function AttendanceManagement({
@@ -28,12 +28,28 @@ export default function AttendanceManagement({
   const [attendanceSearchQuery, setAttendanceSearchQuery] = useState('');
   const [summaryData, setSummaryData] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [rateFilter, setRateFilter] = useState('all'); // 'all' | 'at_risk' | 'good'
+  const [rateFilter, setRateFilter] = useState('all'); // 'all' | 'regular' | 'occasional'
+  const [overrideLoadingId, setOverrideLoadingId] = useState(null);
+
+  // Calendar Picker state
+  const [calendarViewDate, setCalendarViewDate] = useState(() => new Date());
+
+  const getAuthToken = () => localStorage.getItem('vesa_token') || localStorage.getItem('token') || '';
+
+  // Format YYYY-MM-DD
+  const formatYMD = (d) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const todayStr = formatYMD(new Date());
 
   const fetchSummary = async () => {
     try {
       setSummaryLoading(true);
-      const token = localStorage.getItem('token') || '';
+      const token = getAuthToken();
       const res = await fetch('/api/admin/attendance/summary', {
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
       });
@@ -55,6 +71,59 @@ export default function AttendanceManagement({
   const handleRefreshAll = () => {
     fetchAttendanceList();
     fetchSummary();
+  };
+
+  // Admin Manual Override Handler
+  const handleOverrideStatus = async (studentId, attendanceId, newStatus) => {
+    try {
+      setOverrideLoadingId(studentId || attendanceId);
+      const token = getAuthToken();
+      const res = await fetch('/api/admin/attendance/override', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          student_id: studentId,
+          attendance_id: attendanceId,
+          status: newStatus
+        })
+      });
+      if (res.ok) {
+        fetchAttendanceList();
+        fetchSummary();
+      }
+    } catch (e) {
+      console.error('Error overriding attendance status:', e);
+    } finally {
+      setOverrideLoadingId(null);
+    }
+  };
+
+  // Calendar Day Generation
+  const currentYear = calendarViewDate.getFullYear();
+  const currentMonth = calendarViewDate.getMonth();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Sun
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const handlePrevMonth = () => {
+    setCalendarViewDate(new Date(currentYear, currentMonth - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCalendarViewDate(new Date(currentYear, currentMonth + 1, 1));
+  };
+
+  const handleSelectDay = (dayNum) => {
+    const selected = new Date(currentYear, currentMonth, dayNum);
+    const dateStr = formatYMD(selected);
+    setAttendanceFilterDate(dateStr);
   };
 
   const filteredAttendance = attendanceList.filter(record => {
@@ -98,24 +167,220 @@ export default function AttendanceManagement({
             Student Attendance & Boarding Operations
           </h2>
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Live verification scans, route progress tracking, and student attendance rate analytics.
+            Choose any date on the calendar to inspect logs, view boarding verification stats, or override student statuses.
           </span>
         </div>
-        <button 
-          onClick={handleRefreshAll} 
-          className="btn-secondary" 
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontSize: '12px' }}
-          disabled={attendanceLoading || summaryLoading}
-        >
-          <RefreshCw size={14} className={attendanceLoading || summaryLoading ? 'animate-spin' : ''} />
-          Refresh Live Logs
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button 
+            onClick={handleRefreshAll} 
+            className="btn-secondary" 
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontSize: '12px' }}
+            disabled={attendanceLoading || summaryLoading}
+          >
+            <RefreshCw size={14} className={attendanceLoading || summaryLoading ? 'animate-spin' : ''} />
+            Refresh Logs
+          </button>
+        </div>
       </div>
 
-      {/* 2. Top Summary KPI Cards */}
+      {/* 2. Interactive Calendar Day Selector */}
+      <div className="glass-card" style={{
+        padding: '20px',
+        background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(99, 102, 241, 0.05) 100%)',
+        border: '1px solid rgba(6, 182, 212, 0.3)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: 'var(--accent-cyan-light)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--accent-cyan)'
+            }}>
+              <CalendarIcon size={18} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: '800', margin: 0 }}>
+                {monthNames[currentMonth]} {currentYear}
+              </h3>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Click any day below to open that day's attendance log
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => {
+                setCalendarViewDate(new Date());
+                setAttendanceFilterDate(todayStr);
+              }}
+              className="btn-secondary"
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: '700',
+                color: attendanceFilterDate === todayStr ? 'var(--accent-cyan)' : 'var(--text-primary)',
+                borderColor: attendanceFilterDate === todayStr ? 'var(--accent-cyan)' : 'var(--border-color)'
+              }}
+            >
+              Jump to Today
+            </button>
+            <button
+              onClick={() => setAttendanceFilterDate('')}
+              className="btn-secondary"
+              style={{ padding: '6px 12px', fontSize: '12px' }}
+            >
+              View All Dates
+            </button>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <button onClick={handlePrevMonth} className="btn-secondary" style={{ padding: '6px 10px', borderRadius: '6px' }}>
+                <ChevronLeft size={16} />
+              </button>
+              <button onClick={handleNextMonth} className="btn-secondary" style={{ padding: '6px 10px', borderRadius: '6px' }}>
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 7-column Calendar Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(7, 1fr)',
+          gap: '8px',
+          textAlign: 'center'
+        }}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', paddingBottom: '4px' }}>
+              {d}
+            </div>
+          ))}
+
+          {/* Empty cells for starting offset */}
+          {Array.from({ length: firstDayIndex }).map((_, idx) => (
+            <div key={`empty-${idx}`} style={{ opacity: 0.2, minHeight: '52px' }}></div>
+          ))}
+
+          {/* Day Cells */}
+          {Array.from({ length: daysInMonth }).map((_, idx) => {
+            const dayNum = idx + 1;
+            const thisDayDate = new Date(currentYear, currentMonth, dayNum);
+            const dateString = formatYMD(thisDayDate);
+            const isToday = dateString === todayStr;
+            const isSelected = attendanceFilterDate === dateString;
+
+            return (
+              <button
+                key={dayNum}
+                type="button"
+                onClick={() => handleSelectDay(dayNum)}
+                style={{
+                  position: 'relative',
+                  minHeight: '56px',
+                  borderRadius: '10px',
+                  border: isSelected 
+                    ? '2px solid var(--accent-cyan)' 
+                    : isToday 
+                    ? '2px solid var(--accent-emerald)' 
+                    : '1px solid rgba(255,255,255,0.08)',
+                  background: isSelected
+                    ? 'rgba(6, 182, 212, 0.2)'
+                    : isToday
+                    ? 'rgba(16, 185, 129, 0.12)'
+                    : 'rgba(255,255,255,0.03)',
+                  cursor: 'pointer',
+                  padding: '6px 4px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', padding: '0 4px', alignItems: 'center' }}>
+                  <span style={{
+                    fontSize: '13px',
+                    fontWeight: isToday || isSelected ? '800' : '600',
+                    color: isSelected ? 'var(--accent-cyan)' : isToday ? 'var(--accent-emerald)' : 'var(--text-primary)'
+                  }}>
+                    {dayNum}
+                  </span>
+                  {isSelected && (
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent-cyan)' }}></span>
+                  )}
+                </div>
+
+                {isToday && (
+                  <span style={{
+                    fontSize: '9px',
+                    fontWeight: '800',
+                    letterSpacing: '0.5px',
+                    background: 'var(--accent-emerald)',
+                    color: '#000',
+                    padding: '1px 5px',
+                    borderRadius: '4px',
+                    marginTop: '2px',
+                    boxShadow: '0 2px 4px rgba(16,185,129,0.3)'
+                  }}>
+                    TODAY
+                  </span>
+                )}
+
+                {isSelected && !isToday && (
+                  <span style={{
+                    fontSize: '8.5px',
+                    fontWeight: '700',
+                    color: 'var(--accent-cyan)',
+                    marginTop: '2px'
+                  }}>
+                    SELECTED
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Selected Date Status Banner */}
+        <div style={{
+          marginTop: '16px',
+          padding: '10px 14px',
+          borderRadius: '8px',
+          background: 'rgba(255,255,255,0.04)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '8px',
+          fontSize: '12.5px'
+        }}>
+          <div>
+            <span style={{ color: 'var(--text-secondary)' }}>Viewing Log for: </span>
+            <strong style={{ color: 'var(--accent-cyan)', fontWeight: '800' }}>
+              {attendanceFilterDate ? (
+                attendanceFilterDate === todayStr 
+                  ? `Today (${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })})`
+                  : new Date(attendanceFilterDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
+              ) : (
+                'All Recorded Dates (Aggregated View)'
+              )}
+            </strong>
+          </div>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            Found {filteredAttendance.length} attendance records
+          </span>
+        </div>
+      </div>
+
+      {/* 3. Top Summary KPI Cards */}
       <div className="admin-stat-grid-4">
         <div className="glass-card" style={{ padding: '18px 20px', borderLeft: '4px solid var(--accent-cyan)' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600' }}>Active Boarding Rate</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600' }}>Boarding Rate</span>
           <div style={{ fontSize: '28px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-cyan)' }}>
             {boardingRate}%
           </div>
@@ -136,15 +401,15 @@ export default function AttendanceManagement({
           <span style={{ fontSize: '11px', color: 'var(--accent-amber)' }}>● Pending check-in</span>
         </div>
         <div className="glass-card" style={{ padding: '18px 20px', borderLeft: '4px solid var(--accent-rose)' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600' }}>Opted-Out (Today)</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600' }}>Opted-Out</span>
           <div style={{ fontSize: '28px', fontWeight: '800', marginTop: '4px', color: 'var(--accent-rose)' }}>
             {optedOutCount}
           </div>
-          <span style={{ fontSize: '11px', color: 'var(--accent-rose)' }}>● Not commuting today</span>
+          <span style={{ fontSize: '11px', color: 'var(--accent-rose)' }}>● Not commuting</span>
         </div>
       </div>
 
-      {/* 3. Attendance Scanning Window Override Control */}
+      {/* 4. Scanning Window Override */}
       <div className="glass-card" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', border: '1px solid rgba(6,182,212,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'var(--accent-cyan-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-cyan)' }}>
@@ -225,7 +490,7 @@ export default function AttendanceManagement({
         </div>
       </div>
 
-      {/* 4. Section Navigation Tabs */}
+      {/* 5. Section Navigation Tabs */}
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>
         <button
           type="button"
@@ -244,7 +509,7 @@ export default function AttendanceManagement({
             cursor: 'pointer'
           }}
         >
-          <Bus size={16} /> Today's Live Boarding & Route Breakdown
+          <Bus size={16} /> Selected Date Route Breakdown & Admin Override
         </button>
         <button
           type="button"
@@ -286,10 +551,10 @@ export default function AttendanceManagement({
         </button>
       </div>
 
-      {/* TAB 1: TODAY'S LIVE ROUTE BREAKDOWN */}
+      {/* TAB 1: ROUTE BREAKDOWN WITH INSTANT ADMIN OVERRIDE */}
       {activeAttendanceTab === 'live' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '16px' }}>
             {(routes.length > 0 ? routes : [{ id: 1, name: 'Route A (North Campus Link)' }, { id: 2, name: 'Route B (West City Corridor)' }]).map(route => {
               const routeRecords = attendanceList.filter(a => a.route_name === route.name || a.route_id === route.id);
               const rPresent = routeRecords.filter(a => a.attendance_status === 'present').length;
@@ -312,8 +577,8 @@ export default function AttendanceManagement({
                       fontWeight: '800',
                       padding: '4px 10px',
                       borderRadius: '8px',
-                      background: rRate >= 75 ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-                      color: rRate >= 75 ? 'var(--accent-emerald)' : 'var(--accent-amber)'
+                      background: rRate >= 60 ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
+                      color: rRate >= 60 ? 'var(--accent-emerald)' : 'var(--accent-amber)'
                     }}>
                       {rRate}% Boarded
                     </span>
@@ -335,39 +600,90 @@ export default function AttendanceManagement({
                     </div>
                   </div>
 
-                  {/* Student Checklist on Route */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                  {/* Student Checklist with Direct Admin Override Controls */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
                     {routeRecords.length === 0 ? (
-                      <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
-                        No students assigned or logged for this route today.
+                      <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'center', padding: '16px' }}>
+                        No students logged for this route on selected date.
                       </span>
                     ) : (
                       routeRecords.map(rec => (
-                        <div key={rec.attendance_id} style={{
+                        <div key={rec.attendance_id || rec.student_id} style={{
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
-                          padding: '8px 10px',
+                          padding: '10px 12px',
                           background: 'var(--bg-card)',
-                          borderRadius: '6px',
-                          fontSize: '12px'
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          border: '1px solid var(--border-color)',
+                          gap: '8px',
+                          flexWrap: 'wrap'
                         }}>
-                          <div>
-                            <div style={{ fontWeight: '600' }}>{rec.student_name}</div>
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                          <div style={{ flex: '1 1 120px' }}>
+                            <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{rec.student_name}</div>
+                            <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
                               Roll: {rec.roll_number} • Stop: {rec.stop_name || 'Pickup Stop'}
                             </span>
                           </div>
-                          <span style={{
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontSize: '10.5px',
-                            fontWeight: '700',
-                            background: rec.attendance_status === 'present' ? 'rgba(16,185,129,0.15)' : rec.attendance_status === 'absent' ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)',
-                            color: rec.attendance_status === 'present' ? 'var(--accent-emerald)' : rec.attendance_status === 'absent' ? 'var(--accent-amber)' : 'var(--accent-rose)'
-                          }}>
-                            {rec.attendance_status === 'present' ? '● Boarded' : rec.attendance_status === 'absent' ? '● Awaiting' : '● Opted-Out'}
-                          </span>
+
+                          {/* Admin Quick Override Buttons */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <button
+                              type="button"
+                              title="Mark Present (Override)"
+                              onClick={() => handleOverrideStatus(rec.student_id, rec.attendance_id, 'present')}
+                              disabled={overrideLoadingId === (rec.student_id || rec.attendance_id)}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                borderRadius: '6px',
+                                border: '1px solid ' + (rec.attendance_status === 'present' ? 'var(--accent-emerald)' : 'rgba(255,255,255,0.1)'),
+                                background: rec.attendance_status === 'present' ? 'rgba(16,185,129,0.2)' : 'transparent',
+                                color: rec.attendance_status === 'present' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ✓ Present
+                            </button>
+                            <button
+                              type="button"
+                              title="Mark Absent (Override)"
+                              onClick={() => handleOverrideStatus(rec.student_id, rec.attendance_id, 'absent')}
+                              disabled={overrideLoadingId === (rec.student_id || rec.attendance_id)}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                borderRadius: '6px',
+                                border: '1px solid ' + (rec.attendance_status === 'absent' ? 'var(--accent-amber)' : 'rgba(255,255,255,0.1)'),
+                                background: rec.attendance_status === 'absent' ? 'rgba(245,158,11,0.2)' : 'transparent',
+                                color: rec.attendance_status === 'absent' ? 'var(--accent-amber)' : 'var(--text-secondary)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ⏳ Absent
+                            </button>
+                            <button
+                              type="button"
+                              title="Mark Opted-Out (Override)"
+                              onClick={() => handleOverrideStatus(rec.student_id, rec.attendance_id, 'not_coming')}
+                              disabled={overrideLoadingId === (rec.student_id || rec.attendance_id)}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                borderRadius: '6px',
+                                border: '1px solid ' + (rec.attendance_status === 'not_coming' ? 'var(--accent-rose)' : 'rgba(255,255,255,0.1)'),
+                                background: rec.attendance_status === 'not_coming' ? 'rgba(244,63,94,0.2)' : 'transparent',
+                                color: rec.attendance_status === 'not_coming' ? 'var(--accent-rose)' : 'var(--text-secondary)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ✕ Opt-Out
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
@@ -458,12 +774,13 @@ export default function AttendanceManagement({
                   <th>Trips Attended</th>
                   <th>Boarding Rate</th>
                   <th>Transit Status</th>
+                  <th>Admin Override</th>
                 </tr>
               </thead>
               <tbody>
                 {studentRatesList.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
                       No student records found matching search filters.
                     </td>
                   </tr>
@@ -510,6 +827,26 @@ export default function AttendanceManagement({
                             <CheckCircle2 size={13} /> {rate >= 60 ? 'Active Commuter' : 'Occasional Commuter'}
                           </span>
                         </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              type="button"
+                              title="Mark Present for Today"
+                              onClick={() => handleOverrideStatus(st.user_id, null, 'present')}
+                              style={{ padding: '3px 6px', fontSize: '10px', fontWeight: '700', borderRadius: '4px', background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', border: 'none', cursor: 'pointer' }}
+                            >
+                              ✓ Present
+                            </button>
+                            <button
+                              type="button"
+                              title="Mark Absent for Today"
+                              onClick={() => handleOverrideStatus(st.user_id, null, 'absent')}
+                              style={{ padding: '3px 6px', fontSize: '10px', fontWeight: '700', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: 'var(--accent-amber)', border: 'none', cursor: 'pointer' }}
+                            >
+                              ⏳ Absent
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })
@@ -520,7 +857,7 @@ export default function AttendanceManagement({
         </div>
       )}
 
-      {/* TAB 3: HISTORICAL VERIFICATION LOGS */}
+      {/* TAB 3: HISTORICAL VERIFICATION LOGS WITH OVERRIDE */}
       {activeAttendanceTab === 'logs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Filters Bar */}
@@ -544,7 +881,7 @@ export default function AttendanceManagement({
 
             {/* Date */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Calendar size={14} color="var(--text-secondary)" />
+              <CalendarIcon size={14} color="var(--text-secondary)" />
               <input 
                 type="date" 
                 className="input-field" 
@@ -628,25 +965,26 @@ export default function AttendanceManagement({
                     <th>Bus Unit</th>
                     <th>Scan Timestamp</th>
                     <th>Status</th>
+                    <th>Admin Override</th>
                     <th>Emergency Contact</th>
                   </tr>
                 </thead>
                 <tbody>
                   {attendanceLoading ? (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
                         Loading verification logs...
                       </td>
                     </tr>
                   ) : filteredAttendance.length === 0 ? (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
-                        {attendanceSearchQuery ? `No verification records matching "${attendanceSearchQuery}"` : 'No verification logs found.'}
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                        {attendanceSearchQuery ? `No verification records matching "${attendanceSearchQuery}"` : 'No verification logs found for this filter.'}
                       </td>
                     </tr>
                   ) : (
                     filteredAttendance.map((record) => (
-                      <tr key={record.attendance_id}>
+                      <tr key={record.attendance_id || record.student_id}>
                         <td>
                           <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{record.student_name}</div>
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>ID #{record.student_id}</span>
@@ -720,6 +1058,61 @@ export default function AttendanceManagement({
                               <X size={12} /> Not Coming
                             </span>
                           )}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              type="button"
+                              title="Mark Present"
+                              onClick={() => handleOverrideStatus(record.student_id, record.attendance_id, 'present')}
+                              style={{
+                                padding: '3px 6px',
+                                fontSize: '10.5px',
+                                fontWeight: '700',
+                                borderRadius: '4px',
+                                border: '1px solid ' + (record.attendance_status === 'present' ? 'var(--accent-emerald)' : 'rgba(255,255,255,0.1)'),
+                                background: record.attendance_status === 'present' ? 'rgba(16,185,129,0.2)' : 'transparent',
+                                color: record.attendance_status === 'present' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ✓ Present
+                            </button>
+                            <button
+                              type="button"
+                              title="Mark Absent"
+                              onClick={() => handleOverrideStatus(record.student_id, record.attendance_id, 'absent')}
+                              style={{
+                                padding: '3px 6px',
+                                fontSize: '10.5px',
+                                fontWeight: '700',
+                                borderRadius: '4px',
+                                border: '1px solid ' + (record.attendance_status === 'absent' ? 'var(--accent-amber)' : 'rgba(255,255,255,0.1)'),
+                                background: record.attendance_status === 'absent' ? 'rgba(245,158,11,0.2)' : 'transparent',
+                                color: record.attendance_status === 'absent' ? 'var(--accent-amber)' : 'var(--text-secondary)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ⏳ Absent
+                            </button>
+                            <button
+                              type="button"
+                              title="Mark Not Coming"
+                              onClick={() => handleOverrideStatus(record.student_id, record.attendance_id, 'not_coming')}
+                              style={{
+                                padding: '3px 6px',
+                                fontSize: '10.5px',
+                                fontWeight: '700',
+                                borderRadius: '4px',
+                                border: '1px solid ' + (record.attendance_status === 'not_coming' ? 'var(--accent-rose)' : 'rgba(255,255,255,0.1)'),
+                                background: record.attendance_status === 'not_coming' ? 'rgba(244,63,94,0.2)' : 'transparent',
+                                color: record.attendance_status === 'not_coming' ? 'var(--accent-rose)' : 'var(--text-secondary)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ✕ Opt-Out
+                            </button>
+                          </div>
                         </td>
                         <td>
                           <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
