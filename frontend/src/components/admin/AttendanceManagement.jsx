@@ -70,8 +70,8 @@ export default function AttendanceManagement({
   });
 
   const studentRatesList = (summaryData?.studentRates || []).filter(s => {
-    if (rateFilter === 'at_risk' && Number(s.attendance_rate) >= 75) return false;
-    if (rateFilter === 'good' && Number(s.attendance_rate) < 75) return false;
+    if (rateFilter === 'regular' && Number(s.attendance_rate) < 60) return false;
+    if (rateFilter === 'occasional' && Number(s.attendance_rate) >= 60) return false;
     if (!attendanceSearchQuery.trim()) return true;
     const q = attendanceSearchQuery.toLowerCase();
     return (
@@ -414,35 +414,35 @@ export default function AttendanceManagement({
               </button>
               <button
                 type="button"
-                onClick={() => setRateFilter('at_risk')}
+                onClick={() => setRateFilter('regular')}
                 style={{
                   padding: '6px 12px',
                   fontSize: '12px',
                   fontWeight: '700',
                   borderRadius: '6px',
-                  border: '1px solid ' + (rateFilter === 'at_risk' ? 'var(--accent-rose)' : 'var(--border-color)'),
-                  background: rateFilter === 'at_risk' ? 'rgba(239,68,68,0.15)' : 'transparent',
-                  color: rateFilter === 'at_risk' ? 'var(--accent-rose)' : 'var(--text-secondary)',
+                  border: '1px solid ' + (rateFilter === 'regular' ? 'var(--accent-emerald)' : 'var(--border-color)'),
+                  background: rateFilter === 'regular' ? 'rgba(16,185,129,0.15)' : 'transparent',
+                  color: rateFilter === 'regular' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
                   cursor: 'pointer'
                 }}
               >
-                At-Risk (&lt;75%)
+                Regular Riders (≥60%)
               </button>
               <button
                 type="button"
-                onClick={() => setRateFilter('good')}
+                onClick={() => setRateFilter('occasional')}
                 style={{
                   padding: '6px 12px',
                   fontSize: '12px',
                   fontWeight: '700',
                   borderRadius: '6px',
-                  border: '1px solid ' + (rateFilter === 'good' ? 'var(--accent-emerald)' : 'var(--border-color)'),
-                  background: rateFilter === 'good' ? 'rgba(16,185,129,0.15)' : 'transparent',
-                  color: rateFilter === 'good' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+                  border: '1px solid ' + (rateFilter === 'occasional' ? 'var(--accent-cyan)' : 'var(--border-color)'),
+                  background: rateFilter === 'occasional' ? 'rgba(6,182,212,0.15)' : 'transparent',
+                  color: rateFilter === 'occasional' ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                   cursor: 'pointer'
                 }}
               >
-                Good Standing (≥75%)
+                Occasional Riders (&lt;60%)
               </button>
             </div>
           </div>
@@ -456,8 +456,8 @@ export default function AttendanceManagement({
                   <th>Pickup Stop</th>
                   <th>Assigned Route / Bus</th>
                   <th>Trips Attended</th>
-                  <th>Overall Rate</th>
-                  <th>Status Compliance</th>
+                  <th>Boarding Rate</th>
+                  <th>Transit Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -499,22 +499,16 @@ export default function AttendanceManagement({
                             fontWeight: '800',
                             padding: '3px 8px',
                             borderRadius: '10px',
-                            background: rate >= 75 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                            color: rate >= 75 ? 'var(--accent-emerald)' : 'var(--accent-rose)'
+                            background: 'rgba(6,182,212,0.15)',
+                            color: 'var(--accent-cyan)'
                           }}>
                             {rate}%
                           </span>
                         </td>
                         <td>
-                          {rate >= 75 ? (
-                            <span style={{ fontSize: '11px', color: 'var(--accent-emerald)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <CheckCircle2 size={13} /> Compliant
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: '11px', color: 'var(--accent-rose)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <AlertTriangle size={13} /> Below 75%
-                            </span>
-                          )}
+                          <span style={{ fontSize: '11.5px', color: rate >= 60 ? 'var(--accent-emerald)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={13} /> {rate >= 60 ? 'Active Commuter' : 'Occasional Commuter'}
+                          </span>
                         </td>
                       </tr>
                     );

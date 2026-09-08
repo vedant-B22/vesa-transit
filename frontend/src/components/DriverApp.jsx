@@ -64,6 +64,25 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
   const lastGpsSentTimeRef = useRef(0);
   const tripRef = useRef(trip);
   tripRef.current = trip;
+  const stopsRef = useRef(stops);
+  stopsRef.current = stops;
+  const activeStopIndexRef = useRef(activeStopIndex);
+  activeStopIndexRef.current = activeStopIndex;
+  const lastAutoArrivedStopIdRef = useRef(null);
+
+  // Haversine distance calculator in meters
+  const calcDistanceMeters = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
 
   // Voice Assistant States
   const [voiceLang, setVoiceLang] = useState('en');
@@ -256,6 +275,54 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
         accuracy
       });
       setGeoError(null);
+
+      // Check Proximity to Upcoming Stop (<150m) for Automatic Arrival
+      const currentStops = stopsRef.current || [];
+      const currentIdx = activeStopIndexRef.current || 0;
+      if (currentStops.length > 0 && currentStops[currentIdx]) {
+        const targetStop = currentStops[currentIdx];
+        if (targetStop.latitude && targetStop.longitude) {
+          const dist = calcDistanceMeters(
+            latitude,
+            longitude,
+            parseFloat(targetStop.latitude),
+            parseFloat(targetStop.longitude)
+          );
+
+          if (dist <= 150 && lastAutoArrivedStopIdRef.current !== targetStop.id) {
+            lastAutoArrivedStopIdRef.current = targetStop.id;
+            const currentTripId = tripId || (tripRef.current ? tripRef.current.id : null);
+            if (currentTripId) {
+              authFetch(`${API_BASE}/driver/trip/action`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  tripId: currentTripId,
+                  action: 'reach_stop',
+                  stopId: targetStop.id,
+                  lat: latitude,
+                  lng: longitude
+                })
+              }).then(() => {
+                fetchAttendance(currentTripId);
+                const nextStop = currentStops[currentIdx + 1];
+                if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+                  ws.current.send(JSON.stringify({
+                    type: 'stop_reached',
+                    tripId: currentTripId,
+                    stopId: targetStop.id,
+                    stopName: targetStop.name,
+                    nextStopName: nextStop ? nextStop.name : 'Campus Gate',
+                    routeId: tripRef.current?.route_id,
+                    busId: tripRef.current?.bus_id
+                  }));
+                }
+                setDriverToast(`📍 Arrived at ${targetStop.name}! Automatic boarding activated.`);
+                setTimeout(() => setDriverToast(null), 4000);
+              }).catch(err => console.error('Auto reach stop error:', err));
+            }
+          }
+        }
+      }
 
       // Throttled WebSocket broadcast (send every 5 seconds)
       const now = Date.now();
@@ -453,7 +520,20 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       });
       if (res.ok) {
         fetchAttendance(trip.id);
-        alert(`Arrived at stop: ${stop.name}. Boarding passengers.`);
+        const nextStop = stops[activeStopIndex + 1];
+        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({
+            type: 'stop_reached',
+            tripId: trip.id,
+            stopId: stop.id,
+            stopName: stop.name,
+            nextStopName: nextStop ? nextStop.name : 'Campus Gate',
+            routeId: trip.route_id,
+            busId: trip.bus_id
+          }));
+        }
+        setDriverToast(`📍 Arrived at ${stop.name}. Boarding passengers.`);
+        setTimeout(() => setDriverToast(null), 3000);
       }
     } catch (e) {
       console.error(e);

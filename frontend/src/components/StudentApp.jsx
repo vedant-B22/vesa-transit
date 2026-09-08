@@ -3,7 +3,8 @@ import {
   MapPin, Clock, Navigation, AlertTriangle, HelpCircle, 
   CreditCard, QrCode, FileText, Send, User, LogOut, CheckCircle2, ShieldAlert,
   Bell, BellRing, Volume2, VolumeX, Camera, Lock, Unlock, Check, Sparkles,
-  CalendarCheck, Calendar as CalendarIcon, PieChart, ChevronLeft, ChevronRight, CheckCircle
+  CalendarCheck, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CheckCircle,
+  Home, Menu, MoreHorizontal, X
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -141,11 +142,11 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
   // Student Attendance Records & Real Receipt State
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState(null);
-  const [attendanceSubView, setAttendanceSubView] = useState('pie'); // 'pie' (Option 1) or 'calendar' (Option 2)
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
 
   // AI Chat Assistant
   const [chatMessages, setChatMessages] = useState([
@@ -225,6 +226,28 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
     } catch (e) {
       console.warn('Audio tone synthesis error:', e);
     }
+  };
+
+  const playChimeTone = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.5);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([150, 80, 150]);
+      }
+    } catch (e) {}
   };
 
   const startAlarm = (message = "Bus is approximately 10 minutes away from your pickup stop!") => {
@@ -410,38 +433,56 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
       const data = JSON.parse(event.data);
       console.log('Student received WS message:', data);
 
-      if (data.type === 'gps_broadcast' && data.busId === 1) {
-        setTrip(prev => prev ? {
-          ...prev,
-          status: 'active',
-          current_lat: data.latitude,
-          current_lng: data.longitude,
-          speed: data.speed,
-          eta_mins: data.etaMins
-        } : {
-          status: 'active',
-          current_lat: data.latitude,
-          current_lng: data.longitude,
-          speed: data.speed,
-          eta_mins: data.etaMins,
-          bus_id: 1,
-          route_id: 1
-        });
+      if (data.type === 'gps_broadcast') {
+        const myBusId = profile?.bus_id || 1;
+        if (!data.busId || data.busId === myBusId) {
+          setTrip(prev => prev ? {
+            ...prev,
+            status: 'active',
+            current_lat: data.latitude,
+            current_lng: data.longitude,
+            speed: data.speed,
+            eta_mins: data.etaMins
+          } : {
+            status: 'active',
+            current_lat: data.latitude,
+            current_lng: data.longitude,
+            speed: data.speed,
+            eta_mins: data.etaMins,
+            bus_id: data.busId || myBusId,
+            route_id: data.routeId || 1
+          });
+        }
       }
 
       if (data.type === 'trip_started') {
-        showToast('Bus Started', 'Your bus has left the main terminal!');
+        showToast('Bus Started', 'Your transit bus has left the main terminal!');
+        playChimeTone();
         fetchProfile();
       }
 
-      if (data.type === 'reached_stop') {
-        showToast('Bus Arrived', 'Your bus is now at a pickup stop.');
+      if (data.type === 'stop_reached' || data.type === 'reached_stop') {
+        const isMyPickup = 
+          (profile?.pickup_stop_id && Number(data.stopId) === Number(profile.pickup_stop_id)) ||
+          (profile?.stop_name && data.stopName && profile.stop_name.toLowerCase().trim() === data.stopName.toLowerCase().trim());
+
+        if (isMyPickup) {
+          showToast('📍 Bus Arrived at YOUR Pickup Stop!', `Bus ${profile?.bus_number || '101'} is now at ${data.stopName || profile?.stop_name}! Please be ready to board.`);
+          playChimeTone();
+        } else if (data.stopName) {
+          showToast('🚏 Bus Stop Reached', `Bus arrived at ${data.stopName}.${data.nextStopName ? ` Next stop: ${data.nextStopName}` : ''}`);
+          playChimeTone();
+        } else {
+          showToast('🚏 Bus Arrived', 'Your bus has arrived at an upcoming route stop.');
+        }
         fetchProfile();
+        fetchAttendanceHistory();
       }
 
       if (data.type === 'trip_ended') {
-        showToast('Trip Completed', 'The bus has reached the college terminal.');
+        showToast('Trip Completed', 'The bus has safely reached the college terminal.');
         setTrip(prev => prev ? { ...prev, status: 'completed' } : null);
+        fetchAttendanceHistory();
       }
 
       if (data.type === 'wait_request_response' && data.studentId === userId) {
@@ -1126,443 +1167,296 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
         {activeTab === 'attendance' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             
-            {/* Header & 2-Option View Switcher */}
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px' }}>
+            {/* Header & Overall Summary Counters */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: '800', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CalendarCheck size={18} color="var(--accent-cyan)" /> My Attendance Center
+                    <CalendarCheck size={18} color="var(--accent-cyan)" /> My Attendance Calendar
                   </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Transit boarding verification & attendance records
+                  <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                    Daily boarding verification and monthly transit schedule log
                   </span>
                 </div>
                 {attendanceStats && (
                   <span style={{
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     fontWeight: '800',
-                    padding: '3px 10px',
+                    padding: '4px 10px',
                     borderRadius: '12px',
-                    background: (attendanceStats.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                    color: (attendanceStats.attendanceRate || 100) >= 75 ? 'var(--accent-emerald)' : 'var(--accent-rose)',
-                    border: '1px solid ' + ((attendanceStats.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)')
+                    background: 'rgba(6,182,212,0.15)',
+                    color: 'var(--accent-cyan)',
+                    border: '1px solid rgba(6,182,212,0.3)'
                   }}>
-                    {attendanceStats.attendanceRate || 100}% Present
+                    {attendanceStats.attendanceRate || 100}% Boarded
                   </span>
                 )}
               </div>
 
-              {/* 2 View Switcher Tabs (Option 1: Pie Chart / Option 2: Monthly Calendar) */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: 'rgba(0,0,0,0.25)', padding: '4px', borderRadius: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => setAttendanceSubView('pie')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    padding: '8px 6px',
-                    fontSize: '11.5px',
-                    fontWeight: '700',
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: attendanceSubView === 'pie' ? 'var(--accent-cyan)' : 'transparent',
-                    color: attendanceSubView === 'pie' ? '#000' : 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  <PieChart size={14} /> Option 1: Pie Chart
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAttendanceSubView('calendar')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    padding: '8px 6px',
-                    fontSize: '11.5px',
-                    fontWeight: '700',
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: attendanceSubView === 'calendar' ? 'var(--accent-cyan)' : 'transparent',
-                    color: attendanceSubView === 'calendar' ? '#000' : 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  <CalendarIcon size={14} /> Option 2: Calendar
-                </button>
-              </div>
-            </div>
+              {/* 3 Summary Metric Cards */}
+              {(() => {
+                const present = attendanceStats?.presentTrips || (attendanceRecords.filter(r => r.status === 'present').length) || 0;
+                const absent = attendanceStats?.absentTrips || (attendanceRecords.filter(r => r.status === 'absent').length) || 0;
+                const optedOut = attendanceStats?.optedOutTrips || (attendanceRecords.filter(r => r.status === 'not_coming').length) || 0;
 
-            {/* OPTION 1: PIE CHART & OVERALL STATS */}
-            {attendanceSubView === 'pie' && (
-              <>
-                {/* Visual SVG Donut/Pie Chart */}
-                <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px', gap: '16px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                    Term Attendance Breakdown
-                  </span>
-                  
-                  {(() => {
-                    const present = attendanceStats?.presentTrips || (attendanceRecords.filter(r => r.status === 'present').length) || 0;
-                    const absent = attendanceStats?.absentTrips || (attendanceRecords.filter(r => r.status === 'absent').length) || 0;
-                    const optedOut = attendanceStats?.optedOutTrips || (attendanceRecords.filter(r => r.status === 'not_coming').length) || 0;
-                    const total = (present + absent + optedOut) || 1;
-                    
-                    const rate = Math.round((present / total) * 100);
-                    const circumference = 2 * Math.PI * 52; // ~326.7
-                    const presentDash = (present / total) * circumference;
-                    const absentDash = (absent / total) * circumference;
-                    const optedOutDash = (optedOut / total) * circumference;
-
-                    return (
-                      <div style={{ position: 'relative', width: '160px', height: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <svg width="160" height="160" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)' }}>
-                          {/* Background Track */}
-                          <circle
-                            cx="70"
-                            cy="70"
-                            r="52"
-                            fill="transparent"
-                            stroke="rgba(255,255,255,0.06)"
-                            strokeWidth="14"
-                          />
-                          {/* Present Arc (Green) */}
-                          <circle
-                            cx="70"
-                            cy="70"
-                            r="52"
-                            fill="transparent"
-                            stroke="#10b981"
-                            strokeWidth="14"
-                            strokeDasharray={`${presentDash} ${circumference}`}
-                            strokeDashoffset={0}
-                            strokeLinecap="round"
-                          />
-                          {/* Absent Arc (Red) */}
-                          <circle
-                            cx="70"
-                            cy="70"
-                            r="52"
-                            fill="transparent"
-                            stroke="#ef4444"
-                            strokeWidth="14"
-                            strokeDasharray={`${absentDash} ${circumference}`}
-                            strokeDashoffset={-presentDash}
-                          />
-                          {/* Opted-Out Arc (Amber) */}
-                          <circle
-                            cx="70"
-                            cy="70"
-                            r="52"
-                            fill="transparent"
-                            stroke="#f59e0b"
-                            strokeWidth="14"
-                            strokeDasharray={`${optedOutDash} ${circumference}`}
-                            strokeDashoffset={-(presentDash + absentDash)}
-                          />
-                        </svg>
-                        <div style={{ position: 'absolute', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                          <span style={{ fontSize: '24px', fontWeight: '800', color: rate >= 75 ? '#10b981' : '#ef4444' }}>
-                            {rate}%
-                          </span>
-                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            Attendance
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* 3 Metric Pills */}
+                return (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', width: '100%' }}>
-                    <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#10b981' }}>
-                        {attendanceStats?.presentTrips || attendanceRecords.filter(r => r.status === 'present').length || 0}
+                    <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '800', color: '#10b981' }}>
+                        {present}
                       </div>
                       <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: '600' }}>● Boarded (Present)</span>
                     </div>
-                    <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#ef4444' }}>
-                        {attendanceStats?.absentTrips || attendanceRecords.filter(r => r.status === 'absent').length || 0}
+                    <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '800', color: '#ef4444' }}>
+                        {absent}
                       </div>
                       <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: '600' }}>● Absent</span>
                     </div>
-                    <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#f59e0b' }}>
-                        {attendanceStats?.optedOutTrips || attendanceRecords.filter(r => r.status === 'not_coming').length || 0}
+                    <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '800', color: '#f59e0b' }}>
+                        {optedOut}
                       </div>
                       <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: '600' }}>● Opted-Out</span>
                     </div>
                   </div>
+                );
+              })()}
+            </div>
 
-                  {/* Transit Compliance Banner */}
-                  <div style={{
-                    width: '100%',
-                    background: (attendanceStats?.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-                    border: '1px solid ' + ((attendanceStats?.attendanceRate || 100) >= 75 ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'),
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '11.5px'
-                  }}>
-                    {(attendanceStats?.attendanceRate || 100) >= 75 ? (
-                      <>
-                        <CheckCircle size={16} color="#10b981" />
-                        <span style={{ color: 'var(--text-primary)' }}>
-                          <b>Pass in Good Standing:</b> Attendance exceeds 75% required threshold.
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle size={16} color="#ef4444" />
-                        <span style={{ color: 'var(--text-primary)' }}>
-                          <b>Low Attendance Warning:</b> Below 75% requirement. Regularize scans.
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
+            {/* MONTHLY COLOR-CODED CALENDAR */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px' }}>
+              {/* Month Navigator Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(calendarViewDate);
+                    d.setMonth(d.getMonth() - 1);
+                    setCalendarViewDate(d);
+                  }}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span style={{ fontSize: '14px', fontWeight: '800' }}>
+                  {calendarViewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(calendarViewDate);
+                    d.setMonth(d.getMonth() + 1);
+                    setCalendarViewDate(d);
+                  }}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
 
-                {/* Recent Boarding Log */}
-                <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <h4 style={{ fontSize: '13px', fontWeight: '700', margin: 0 }}>Recent Boarding Log</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
-                    {attendanceRecords.length === 0 ? (
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
-                        No past boarding scans recorded.
-                      </span>
-                    ) : (
-                      attendanceRecords.slice(0, 10).map((r, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--bg-card)', borderRadius: '6px', fontSize: '11.5px' }}>
-                          <div>
-                            <span style={{ fontWeight: '600' }}>{r.route_name || 'Route Link'}</span>
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>
-                              {r.scanned_at ? new Date(r.scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : (r.trip_date || 'Recent')}
-                            </span>
-                          </div>
-                          <span style={{
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontSize: '10.5px',
-                            fontWeight: '700',
-                            background: r.status === 'present' ? 'rgba(16,185,129,0.15)' : r.status === 'absent' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-                            color: r.status === 'present' ? '#10b981' : r.status === 'absent' ? '#ef4444' : '#f59e0b'
-                          }}>
-                            {r.status === 'present' ? '● Boarded' : r.status === 'absent' ? '● Absent' : '● Opted-Out'}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* OPTION 2: MONTHLY COLOR-CODED CALENDAR */}
-            {attendanceSubView === 'calendar' && (
-              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px' }}>
-                {/* Month Navigator Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date(calendarViewDate);
-                      d.setMonth(d.getMonth() - 1);
-                      setCalendarViewDate(d);
-                    }}
-                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span style={{ fontSize: '14px', fontWeight: '800' }}>
-                    {calendarViewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+              {/* Day of Week Headers */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
+                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, dIdx) => (
+                  <span key={dIdx} style={{ fontSize: '10.5px', fontWeight: '700', color: 'var(--text-muted)' }}>
+                    {day}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date(calendarViewDate);
-                      d.setMonth(d.getMonth() + 1);
-                      setCalendarViewDate(d);
-                    }}
-                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
+                ))}
+              </div>
 
-                {/* Day of Week Headers */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
-                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, dIdx) => (
-                    <span key={dIdx} style={{ fontSize: '10.5px', fontWeight: '700', color: 'var(--text-muted)' }}>
-                      {day}
+              {/* Calendar Days Matrix */}
+              {(() => {
+                const year = calendarViewDate.getFullYear();
+                const month = calendarViewDate.getMonth();
+                const firstDayIndex = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                const cells = [];
+                // Empty padding cells before first day of month
+                for (let i = 0; i < firstDayIndex; i++) {
+                  cells.push({ empty: true, key: `empty-${i}` });
+                }
+                // Day cells
+                for (let d = 1; d <= daysInMonth; d++) {
+                  const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                  const record = attendanceRecords.find(r => {
+                    if (!r.scanned_at && !r.recorded_at && !r.trip_date) return false;
+                    const rDate = (r.scanned_at || r.recorded_at || r.trip_date).split('T')[0];
+                    return rDate === dateStr;
+                  });
+                  cells.push({
+                    dayNum: d,
+                    dateStr,
+                    record,
+                    status: record?.status || null,
+                    isWeekend: (new Date(year, month, d).getDay() === 0 || new Date(year, month, d).getDay() === 6),
+                    key: `day-${d}`
+                  });
+                }
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
+                    {cells.map(c => {
+                      if (c.empty) {
+                        return <div key={c.key} style={{ height: '38px' }}></div>;
+                      }
+
+                      let bg = 'rgba(255,255,255,0.03)';
+                      let color = 'var(--text-muted)';
+                      let border = '1px solid var(--border-color)';
+                      let shadow = 'none';
+
+                      if (c.status === 'present') {
+                        bg = '#10b981';
+                        color = '#fff';
+                        border = '1px solid #10b981';
+                        shadow = '0 2px 8px rgba(16,185,129,0.35)';
+                      } else if (c.status === 'absent') {
+                        bg = '#ef4444';
+                        color = '#fff';
+                        border = '1px solid #ef4444';
+                        shadow = '0 2px 8px rgba(239,68,68,0.35)';
+                      } else if (c.status === 'not_coming') {
+                        bg = '#f59e0b';
+                        color = '#fff';
+                        border = '1px solid #f59e0b';
+                      } else if (c.isWeekend) {
+                        bg = 'rgba(255,255,255,0.015)';
+                        color = 'var(--text-muted)';
+                        border = '1px dashed rgba(255,255,255,0.06)';
+                      }
+
+                      const isSelected = selectedCalendarDay?.dateStr === c.dateStr;
+
+                      return (
+                        <div
+                          key={c.key}
+                          onClick={() => setSelectedCalendarDay(c)}
+                          style={{
+                            height: '38px',
+                            borderRadius: '8px',
+                            background: bg,
+                            color: color,
+                            border: isSelected ? '2px solid var(--accent-cyan)' : border,
+                            boxShadow: shadow,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            transform: isSelected ? 'scale(1.06)' : 'none',
+                            transition: 'transform 0.15s ease'
+                          }}
+                        >
+                          <span>{c.dayNum}</span>
+                          {c.status === 'present' && <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#fff', marginTop: '1px' }}></div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* Calendar Legend Bar */}
+              <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '10px', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#10b981' }}></div>
+                  <span>Present (Green)</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#ef4444' }}></div>
+                  <span>Absent (Red)</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#f59e0b' }}></div>
+                  <span>Opted-Out (Amber)</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-color)' }}></div>
+                  <span>No Transit (Grey)</span>
+                </div>
+              </div>
+
+              {/* Selected Day Inspector Card */}
+              {selectedCalendarDay && (
+                <div style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--accent-cyan)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  fontSize: '12px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ color: 'var(--accent-cyan)' }}>
+                      📅 Date: {selectedCalendarDay.dateStr}
+                    </strong>
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: '10px',
+                      fontSize: '10.5px',
+                      fontWeight: '700',
+                      background: selectedCalendarDay.status === 'present' ? 'rgba(16,185,129,0.15)' : selectedCalendarDay.status === 'absent' ? 'rgba(239,68,68,0.15)' : selectedCalendarDay.status === 'not_coming' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.06)',
+                      color: selectedCalendarDay.status === 'present' ? '#10b981' : selectedCalendarDay.status === 'absent' ? '#ef4444' : selectedCalendarDay.status === 'not_coming' ? '#f59e0b' : 'var(--text-secondary)'
+                    }}>
+                      {selectedCalendarDay.status ? selectedCalendarDay.status.toUpperCase() : (selectedCalendarDay.isWeekend ? 'WEEKEND' : 'NO TRIP')}
                     </span>
-                  ))}
-                </div>
-
-                {/* Calendar Days Matrix */}
-                {(() => {
-                  const year = calendarViewDate.getFullYear();
-                  const month = calendarViewDate.getMonth();
-                  const firstDayIndex = new Date(year, month, 1).getDay();
-                  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-                  const cells = [];
-                  // Empty padding cells before first day of month
-                  for (let i = 0; i < firstDayIndex; i++) {
-                    cells.push({ empty: true, key: `empty-${i}` });
-                  }
-                  // Day cells
-                  for (let d = 1; d <= daysInMonth; d++) {
-                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    const record = attendanceRecords.find(r => {
-                      if (!r.scanned_at && !r.recorded_at && !r.trip_date) return false;
-                      const rDate = (r.scanned_at || r.recorded_at || r.trip_date).split('T')[0];
-                      return rDate === dateStr;
-                    });
-                    cells.push({
-                      dayNum: d,
-                      dateStr,
-                      record,
-                      status: record?.status || null,
-                      isWeekend: (new Date(year, month, d).getDay() === 0 || new Date(year, month, d).getDay() === 6),
-                      key: `day-${d}`
-                    });
-                  }
-
-                  return (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
-                      {cells.map(c => {
-                        if (c.empty) {
-                          return <div key={c.key} style={{ height: '38px' }}></div>;
-                        }
-
-                        let bg = 'rgba(255,255,255,0.03)';
-                        let color = 'var(--text-muted)';
-                        let border = '1px solid var(--border-color)';
-                        let shadow = 'none';
-
-                        if (c.status === 'present') {
-                          bg = '#10b981';
-                          color = '#fff';
-                          border = '1px solid #10b981';
-                          shadow = '0 2px 8px rgba(16,185,129,0.35)';
-                        } else if (c.status === 'absent') {
-                          bg = '#ef4444';
-                          color = '#fff';
-                          border = '1px solid #ef4444';
-                          shadow = '0 2px 8px rgba(239,68,68,0.35)';
-                        } else if (c.status === 'not_coming') {
-                          bg = '#f59e0b';
-                          color = '#fff';
-                          border = '1px solid #f59e0b';
-                        } else if (c.isWeekend) {
-                          bg = 'rgba(255,255,255,0.015)';
-                          color = 'var(--text-muted)';
-                          border = '1px dashed rgba(255,255,255,0.06)';
-                        }
-
-                        const isSelected = selectedCalendarDay?.dateStr === c.dateStr;
-
-                        return (
-                          <div
-                            key={c.key}
-                            onClick={() => setSelectedCalendarDay(c)}
-                            style={{
-                              height: '38px',
-                              borderRadius: '8px',
-                              background: bg,
-                              color: color,
-                              border: isSelected ? '2px solid var(--accent-cyan)' : border,
-                              boxShadow: shadow,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '12px',
-                              fontWeight: '700',
-                              cursor: 'pointer',
-                              transform: isSelected ? 'scale(1.06)' : 'none',
-                              transition: 'transform 0.15s ease'
-                            }}
-                          >
-                            <span>{c.dayNum}</span>
-                            {c.status === 'present' && <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#fff', marginTop: '1px' }}></div>}
-                          </div>
-                        );
-                      })}
+                  </div>
+                  {selectedCalendarDay.record ? (
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div>Route: <b>{selectedCalendarDay.record.route_name || profile?.route_name || 'Assigned Route'}</b></div>
+                      <div>Bus Unit: <b>Bus {selectedCalendarDay.record.bus_number || profile?.bus_number || '101'}</b></div>
+                      <div>Stop: <b>{selectedCalendarDay.record.stop_name || profile?.stop_name || 'Pickup Point'}</b></div>
+                      {selectedCalendarDay.record.scanned_at && (
+                        <div>Checked in: <b>{new Date(selectedCalendarDay.record.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b></div>
+                      )}
                     </div>
-                  );
-                })()}
-
-                {/* Calendar Legend Bar */}
-                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '10px', fontSize: '11px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#10b981' }}></div>
-                    <span>Present (Green)</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#ef4444' }}></div>
-                    <span>Absent (Red)</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-color)' }}></div>
-                    <span>No Transit (Grey)</span>
-                  </div>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      No transit activity or scan recorded on this day.
+                    </div>
+                  )}
                 </div>
+              )}
+            </div>
 
-                {/* Selected Day Inspector Card */}
-                {selectedCalendarDay && (
-                  <div style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--accent-cyan)',
-                    borderRadius: '8px',
-                    padding: '12px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    fontSize: '12px'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ color: 'var(--accent-cyan)' }}>
-                        📅 Date: {selectedCalendarDay.dateStr}
-                      </strong>
+            {/* Recent Boarding Log */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <h4 style={{ fontSize: '13px', fontWeight: '700', margin: 0 }}>Recent Boarding Log</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
+                {attendanceRecords.length === 0 ? (
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
+                    No past boarding scans recorded.
+                  </span>
+                ) : (
+                  attendanceRecords.slice(0, 10).map((r, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--bg-card)', borderRadius: '6px', fontSize: '11.5px' }}>
+                      <div>
+                        <span style={{ fontWeight: '600' }}>{r.route_name || 'Route Link'}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>
+                          {r.scanned_at ? new Date(r.scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : (r.trip_date || 'Recent')}
+                        </span>
+                      </div>
                       <span style={{
                         padding: '2px 8px',
                         borderRadius: '10px',
                         fontSize: '10.5px',
                         fontWeight: '700',
-                        background: selectedCalendarDay.status === 'present' ? 'rgba(16,185,129,0.15)' : selectedCalendarDay.status === 'absent' ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
-                        color: selectedCalendarDay.status === 'present' ? '#10b981' : selectedCalendarDay.status === 'absent' ? '#ef4444' : 'var(--text-secondary)'
+                        background: r.status === 'present' ? 'rgba(16,185,129,0.15)' : r.status === 'absent' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: r.status === 'present' ? '#10b981' : r.status === 'absent' ? '#ef4444' : '#f59e0b'
                       }}>
-                        {selectedCalendarDay.status ? selectedCalendarDay.status.toUpperCase() : (selectedCalendarDay.isWeekend ? 'WEEKEND' : 'NO TRIP')}
+                        {r.status === 'present' ? '● Boarded' : r.status === 'absent' ? '● Absent' : '● Opted-Out'}
                       </span>
                     </div>
-                    {selectedCalendarDay.record ? (
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <div>Route: <b>{selectedCalendarDay.record.route_name || profile?.route_name || 'Assigned Route'}</b></div>
-                        <div>Bus Unit: <b>Bus {selectedCalendarDay.record.bus_number || profile?.bus_number || '101'}</b></div>
-                        <div>Stop: <b>{selectedCalendarDay.record.stop_name || profile?.stop_name || 'Pickup Point'}</b></div>
-                        {selectedCalendarDay.record.scanned_at && (
-                          <div>Checked in: <b>{new Date(selectedCalendarDay.record.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b></div>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        No transit activity or scan recorded on this day.
-                      </div>
-                    )}
-                  </div>
+                  ))
                 )}
               </div>
-            )}
+            </div>
+
           </div>
         )}
 
@@ -1711,41 +1605,188 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
         )}
       </div>
 
-      {/* Emulator UI Bottom Navbar */}
+      {/* 5-Button Bottom Navbar (Mobile Reachable) */}
       <div className="emulator-footer">
-        <button className={`nav-button ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>
-          <User size={18} />
+        <button 
+          className={`nav-button ${activeTab === 'home' ? 'active' : ''}`} 
+          onClick={() => { setActiveTab('home'); setIsMoreOpen(false); }}
+        >
+          <Home size={19} />
           <span>Home</span>
         </button>
-        <button className={`nav-button ${activeTab === 'tracking' ? 'active' : ''}`} onClick={() => setActiveTab('tracking')}>
-          <MapPin size={18} />
+        <button 
+          className={`nav-button ${activeTab === 'tracking' ? 'active' : ''}`} 
+          onClick={() => { setActiveTab('tracking'); setIsMoreOpen(false); }}
+        >
+          <MapPin size={19} />
           <span>Live Map</span>
         </button>
-        <button className={`nav-button ${activeTab === 'attendance' ? 'active' : ''}`} onClick={() => setActiveTab('attendance')}>
-          <CalendarCheck size={18} />
+        <button 
+          className={`nav-button ${activeTab === 'pass' ? 'active' : ''}`} 
+          onClick={() => { setActiveTab('pass'); setIsMoreOpen(false); }}
+        >
+          <QrCode size={19} />
+          <span>Bus Pass</span>
+        </button>
+        <button 
+          className={`nav-button ${activeTab === 'attendance' ? 'active' : ''}`} 
+          onClick={() => { setActiveTab('attendance'); setIsMoreOpen(false); }}
+        >
+          <CalendarCheck size={19} />
           <span>Attendance</span>
         </button>
-        <button className={`nav-button ${activeTab === 'fees' ? 'active' : ''}`} onClick={() => setActiveTab('fees')}>
-          <CreditCard size={18} />
-          <span>Fees</span>
-        </button>
-        <button className={`nav-button ${activeTab === 'pass' ? 'active' : ''}`} onClick={() => setActiveTab('pass')}>
-          <QrCode size={18} />
-          <span>Pass</span>
-        </button>
-        <button className={`nav-button ${activeTab === 'assistant' ? 'active' : ''}`} onClick={() => setActiveTab('assistant')}>
-          <HelpCircle size={18} />
-          <span>AI Assist</span>
-        </button>
-        <button className={`nav-button ${activeTab === 'support' ? 'active' : ''}`} onClick={() => setActiveTab('support')}>
-          <AlertTriangle size={18} />
-          <span>Support</span>
-        </button>
-        <button className={`nav-button ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')}>
-          <User size={18} />
-          <span>Profile</span>
+        <button 
+          className={`nav-button ${['fees', 'assistant', 'support', 'profile'].includes(activeTab) || isMoreOpen ? 'active' : ''}`} 
+          onClick={() => setIsMoreOpen(prev => !prev)}
+        >
+          <Menu size={19} />
+          <span>{['fees', 'assistant', 'support', 'profile'].includes(activeTab) ? (activeTab === 'fees' ? 'Fees' : activeTab === 'assistant' ? 'AI Bot' : activeTab === 'support' ? 'Support' : 'Profile') : 'More'}</span>
         </button>
       </div>
+
+      {/* More Options Drawer Modal */}
+      {isMoreOpen && (
+        <div 
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(3px)',
+            WebkitBackdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end'
+          }}
+          onClick={() => setIsMoreOpen(false)}
+        >
+          <div 
+            style={{
+              background: 'var(--bg-surface-solid)',
+              borderTop: '1px solid var(--border-color)',
+              borderTopLeftRadius: '20px',
+              borderTopRightRadius: '20px',
+              padding: '20px 16px 28px 16px',
+              boxShadow: '0 -10px 30px rgba(0,0,0,0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+              maxWidth: '480px',
+              margin: '0 auto',
+              width: '100%',
+              boxSizing: 'border-box'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-cyan)' }}></div>
+                <span style={{ fontSize: '14px', fontWeight: '800', letterSpacing: '0.3px' }}>Transit Hub & Services</span>
+              </div>
+              <button 
+                onClick={() => setIsMoreOpen(false)}
+                style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: 'var(--text-secondary)', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <button
+                onClick={() => { setActiveTab('fees'); setIsMoreOpen(false); }}
+                style={{
+                  background: activeTab === 'fees' ? 'var(--accent-cyan-light)' : 'var(--bg-card)',
+                  border: '1px solid ' + (activeTab === 'fees' ? 'var(--accent-cyan)' : 'var(--border-color)'),
+                  borderRadius: '12px',
+                  padding: '14px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                <CreditCard size={20} color="var(--accent-cyan)" />
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: '700' }}>Fee Payments</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Receipts & dues</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('assistant'); setIsMoreOpen(false); }}
+                style={{
+                  background: activeTab === 'assistant' ? 'var(--accent-cyan-light)' : 'var(--bg-card)',
+                  border: '1px solid ' + (activeTab === 'assistant' ? 'var(--accent-cyan)' : 'var(--border-color)'),
+                  borderRadius: '12px',
+                  padding: '14px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                <HelpCircle size={20} color="var(--accent-emerald)" />
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: '700' }}>AI Assistant</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ask transit AI</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('support'); setIsMoreOpen(false); }}
+                style={{
+                  background: activeTab === 'support' ? 'var(--accent-cyan-light)' : 'var(--bg-card)',
+                  border: '1px solid ' + (activeTab === 'support' ? 'var(--accent-cyan)' : 'var(--border-color)'),
+                  borderRadius: '12px',
+                  padding: '14px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                <AlertTriangle size={20} color="var(--accent-amber)" />
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: '700' }}>Help & Issues</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Lost & found / queries</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('profile'); setIsMoreOpen(false); }}
+                style={{
+                  background: activeTab === 'profile' ? 'var(--accent-cyan-light)' : 'var(--bg-card)',
+                  border: '1px solid ' + (activeTab === 'profile' ? 'var(--accent-cyan)' : 'var(--border-color)'),
+                  borderRadius: '12px',
+                  padding: '14px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                <User size={20} color="var(--accent-rose)" />
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: '700' }}>My Profile</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Route details & pass</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Official Payment Receipt Modal (Printable & Downloadable) */}
       {selectedReceipt && (

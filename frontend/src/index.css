@@ -697,8 +697,17 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @media (max-width: 900px) {
+  .admin-layout {
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
   .admin-mobile-topbar {
     display: flex;
+    width: 100%;
+    box-sizing: border-box;
   }
   
   .admin-sidebar-backdrop.active {
@@ -722,17 +731,27 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .admin-main-content {
-    padding: 18px 16px;
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+    padding: 14px 10px !important;
+    overflow-x: hidden !important;
   }
 
   .admin-grid [style*="grid-column: span 8"],
   .admin-grid [style*="grid-column: span 6"],
-  .admin-grid [style*="grid-column: span 4"] {
+  .admin-grid [style*="grid-column: span 4"],
+  .admin-grid [style*="grid-column: span 3"] {
     grid-column: span 12 !important;
   }
   
   .admin-stat-grid-4 {
     grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .glass-card {
+    padding: 14px !important;
   }
 }
 
@@ -743,26 +762,40 @@ h1, h2, h3, h4, h5, h6 {
   
   .admin-grid {
     grid-template-columns: 1fr !important;
-    gap: 14px;
+    gap: 12px;
   }
 
   .admin-card-stat {
     grid-column: span 1 !important;
   }
+
+  .brand-title {
+    font-size: 16px !important;
+  }
 }
 
-@media (max-width: 400px) {
+@media (max-width: 480px) {
   .phone-emulator {
     width: 100%;
     height: 100vh;
     border: none;
     border-radius: 0;
+    box-shadow: none;
   }
   .phone-emulator::before {
     display: none;
   }
   .phone-screen {
     padding-top: 0;
+  }
+  .emulator-footer {
+    height: 60px;
+    padding: 0 4px;
+  }
+  .nav-button {
+    padding: 4px 8px;
+    font-size: 10px;
+    gap: 2px;
   }
 }
 

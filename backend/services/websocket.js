@@ -3,6 +3,21 @@ import * as db from '../database.js';
 import * as ai from '../aiEngine.js';
 import { verifyToken } from '../middleware/auth.js';
 
+// Haversine distance formula in meters
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // metres
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 // Connected authenticated WebSocket clients: ws -> { role, userId, email, routeId, busId }
 export const clients = new Map();
 
@@ -134,8 +149,88 @@ export function setupWebSocket(server) {
               delayMins: prediction.delayMins,
               trafficLevel: prediction.trafficLevel
             });
+
+            // Automatic Proximity Detection for Route Stops (Within ~150 meters)
+            try {
+              const routeStops = await db.query(
+                `SELECT s.id, s.name, s.latitude, s.longitude, rs.sequence_order
+                 FROM route_stops rs
+                 JOIN stops s ON rs.stop_id = s.id
+                 WHERE rs.route_id = $1
+                 ORDER BY rs.sequence_order ASC`,
+                [trip.route_id]
+              );
+
+              for (let i = 0; i < routeStops.length; i++) {
+                const stop = routeStops[i];
+                if (stop.latitude && stop.longitude) {
+                  const dist = calculateDistanceMeters(
+                    latitude,
+                    longitude,
+                    parseFloat(stop.latitude),
+                    parseFloat(stop.longitude)
+                  );
+
+                  // If within 150m and stop hasn't already been marked as current
+                  if (dist <= 150 && trip.current_stop_id !== stop.id) {
+                    const nextStop = routeStops[i + 1] || null;
+                    await db.run(
+                      'UPDATE trips SET current_stop_id = $1, next_stop_id = $2 WHERE id = $3',
+                      [stop.id, nextStop ? nextStop.id : null, tripId]
+                    );
+
+                    // Auto-mark scheduled students for this stop as present if they were marked absent
+                    const boardingStudents = await db.query(
+                      'SELECT user_id FROM students WHERE pickup_stop_id = $1',
+                      [stop.id]
+                    );
+                    for (const st of boardingStudents) {
+                      const attRecord = await db.get(
+                        'SELECT id, status FROM attendance WHERE trip_id = $1 AND student_id = $2',
+                        [tripId, st.user_id]
+                      );
+                      if (attRecord && attRecord.status === 'absent') {
+                        await db.run('UPDATE attendance SET status = \'present\' WHERE id = $1', [attRecord.id]);
+                      }
+                    }
+
+                    broadcast({
+                      type: 'stop_reached',
+                      tripId,
+                      routeId: trip.route_id,
+                      busId: trip.bus_id,
+                      stopId: stop.id,
+                      stopName: stop.name,
+                      sequenceOrder: stop.sequence_order,
+                      nextStopName: nextStop ? nextStop.name : 'Campus Gate',
+                      timestamp: new Date().toISOString()
+                    });
+                    break;
+                  }
+                }
+              }
+            } catch (stopErr) {
+              console.error('Error in automatic stop detection:', stopErr);
+            }
           } catch (err) {
             console.error('Error handling GPS update:', err);
+          }
+          break;
+        }
+
+        case 'stop_reached': {
+          const { tripId, stopId, stopName, nextStopName, routeId, busId } = msg;
+          if (tripId && stopId) {
+            broadcast({
+              type: 'stop_reached',
+              tripId,
+              stopId,
+              stopName,
+              nextStopName: nextStopName || 'Campus Destination',
+              routeId,
+              busId,
+              timestamp: new Date().toISOString()
+            });
           }
           break;
         }
