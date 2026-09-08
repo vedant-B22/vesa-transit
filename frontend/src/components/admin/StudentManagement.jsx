@@ -27,8 +27,33 @@ export default function StudentManagement({
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [routeStops, setRouteStops] = useState([]);
   const [editRouteStops, setEditRouteStops] = useState([]);
+  const [allStops, setAllStops] = useState([]);
+  const [quickStopName, setQuickStopName] = useState('');
+  const [quickStopLoading, setQuickStopLoading] = useState(false);
+  const [editQuickStopName, setEditQuickStopName] = useState('');
+  const [editQuickStopLoading, setEditQuickStopLoading] = useState(false);
 
   const getAuthToken = () => localStorage.getItem('vesa_token') || localStorage.getItem('token') || '';
+
+  // Fetch all system stops
+  const fetchAllStops = async () => {
+    try {
+      const token = getAuthToken();
+      const res = await fetch('/api/admin/stops', {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setAllStops(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllStops();
+  }, []);
 
   // Auto-set routeId if not yet selected and routes available
   useEffect(() => {
@@ -54,8 +79,6 @@ export default function StudentManagement({
                 const stopExists = data.some(st => st.id === Number(prev.pickupStopId));
                 return stopExists ? prev : { ...prev, pickupStopId: data[0].id };
               });
-            } else {
-              setStudentForm(prev => ({ ...prev, pickupStopId: '' }));
             }
           }
         })
@@ -79,6 +102,94 @@ export default function StudentManagement({
         .catch(err => console.error(err));
     }
   }, [studentEditModal.data?.route_id]);
+
+  const handleQuickAddStop = async () => {
+    if (!quickStopName.trim()) return;
+    const activeRouteId = studentForm.routeId || (routes && routes[0]?.id);
+    if (!activeRouteId) return;
+
+    try {
+      setQuickStopLoading(true);
+      const token = getAuthToken();
+      const res = await fetch('/api/admin/stops', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          routeId: activeRouteId,
+          name: quickStopName.trim(),
+          scheduledTime: '08:00 AM'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setQuickStopName('');
+        // Refresh route stops
+        const resStops = await fetch(`/api/admin/routes/${activeRouteId}/stops`, {
+          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+        });
+        const newStops = await resStops.json();
+        if (Array.isArray(newStops)) {
+          setRouteStops(newStops);
+          const addedId = data.id || newStops[newStops.length - 1]?.id;
+          if (addedId) setStudentForm(prev => ({ ...prev, pickupStopId: addedId }));
+        }
+        fetchAllStops();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setQuickStopLoading(false);
+    }
+  };
+
+  const handleEditQuickAddStop = async () => {
+    if (!editQuickStopName.trim()) return;
+    const activeRouteId = studentEditModal.data?.route_id;
+    if (!activeRouteId) return;
+
+    try {
+      setEditQuickStopLoading(true);
+      const token = getAuthToken();
+      const res = await fetch('/api/admin/stops', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          routeId: activeRouteId,
+          name: editQuickStopName.trim(),
+          scheduledTime: '08:00 AM'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setEditQuickStopName('');
+        const resStops = await fetch(`/api/admin/routes/${activeRouteId}/stops`, {
+          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+        });
+        const newStops = await resStops.json();
+        if (Array.isArray(newStops)) {
+          setEditRouteStops(newStops);
+          const addedId = data.id || newStops[newStops.length - 1]?.id;
+          if (addedId) {
+            setStudentEditModal(prev => ({
+              ...prev,
+              data: { ...prev.data, pickup_stop_id: addedId }
+            }));
+          }
+        }
+        fetchAllStops();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setEditQuickStopLoading(false);
+    }
+  };
 
   const filteredStudents = students.filter(s => {
     if (!studentSearchQuery.trim()) return true;
@@ -136,21 +247,54 @@ export default function StudentManagement({
             </div>
 
             <div>
-              <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Assigned Pickup Stop</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Assigned Pickup Stop</label>
+                {routeStops.length === 0 && (
+                  <span style={{ fontSize: '10.5px', color: 'var(--accent-amber)', fontWeight: '600' }}>
+                    0 stops on this route
+                  </span>
+                )}
+              </div>
               <select 
                 className="input-field"
                 value={studentForm.pickupStopId || ''}
-                onChange={e => setStudentForm({...studentForm, pickupStopId: parseInt(e.target.value)})}
-                style={{ background: 'var(--bg-main)', marginTop: '4px' }}
+                onChange={e => setStudentForm({...studentForm, pickupStopId: e.target.value ? parseInt(e.target.value) : ''})}
+                style={{ background: 'var(--bg-main)' }}
               >
-                {routeStops.length === 0 ? (
-                  <option value="">No stops found for this route</option>
-                ) : (
+                {routeStops.length > 0 ? (
                   routeStops.map(st => (
                     <option key={st.id} value={st.id}>#{st.sequence_order} - {st.name} ({st.scheduled_time})</option>
                   ))
+                ) : (
+                  <>
+                    <option value="">-- Select Stop or Add New Below --</option>
+                    {allStops.length > 0 && allStops.map(st => (
+                      <option key={st.id} value={st.id}>{st.name} ({st.route_name || 'System Stop'})</option>
+                    ))}
+                  </>
                 )}
               </select>
+
+              {/* Inline Quick Add Stop Input */}
+              <div style={{ marginTop: '8px', display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Or + Quick add stop (e.g. Katraj Chowk)..."
+                  value={quickStopName}
+                  onChange={e => setQuickStopName(e.target.value)}
+                  style={{ fontSize: '11.5px', padding: '6px 10px', background: 'var(--bg-main)' }}
+                />
+                <button
+                  type="button"
+                  onClick={handleQuickAddStop}
+                  disabled={!quickStopName.trim() || quickStopLoading}
+                  className="btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: '11px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Plus size={12} /> {quickStopLoading ? 'Adding...' : 'Add Stop'}
+                </button>
+              </div>
             </div>
 
             <button type="submit" className="btn-primary" style={{ marginTop: '8px' }}>
@@ -415,7 +559,14 @@ export default function StudentManagement({
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assigned Pickup Stop</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Assigned Pickup Stop</label>
+                  {editRouteStops.length === 0 && (
+                    <span style={{ fontSize: '10.5px', color: 'var(--accent-amber)', fontWeight: '600' }}>
+                      0 stops on this route
+                    </span>
+                  )}
+                </div>
                 <select 
                   className="input-field"
                   value={studentEditModal.data.pickup_stop_id || ''}
@@ -423,10 +574,36 @@ export default function StudentManagement({
                   style={{ background: 'var(--bg-main)' }}
                 >
                   <option value="">Unassigned Stop</option>
-                  {editRouteStops.map(st => (
-                    <option key={st.id} value={st.id}>#{st.sequence_order} - {st.name} ({st.scheduled_time})</option>
-                  ))}
+                  {editRouteStops.length > 0 ? (
+                    editRouteStops.map(st => (
+                      <option key={st.id} value={st.id}>#{st.sequence_order} - {st.name} ({st.scheduled_time})</option>
+                    ))
+                  ) : (
+                    allStops.map(st => (
+                      <option key={st.id} value={st.id}>{st.name} ({st.route_name || 'System Stop'})</option>
+                    ))
+                  )}
                 </select>
+
+                <div style={{ marginTop: '8px', display: 'flex', gap: '6px' }}>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Or + Quick add stop for this route..."
+                    value={editQuickStopName}
+                    onChange={e => setEditQuickStopName(e.target.value)}
+                    style={{ fontSize: '11.5px', padding: '6px 10px', background: 'var(--bg-main)' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleEditQuickAddStop}
+                    disabled={!editQuickStopName.trim() || editQuickStopLoading}
+                    className="btn-secondary"
+                    style={{ padding: '6px 10px', fontSize: '11px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Plus size={12} /> {editQuickStopLoading ? 'Adding...' : 'Add Stop'}
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>

@@ -87,36 +87,47 @@ export function createAdminRouter() {
   // 2. Admin Student Attendance Query Endpoint
   router.get('/attendance', async (req, res, next) => {
     try {
-      const { date, routeId, busId, status } = req.query;
+      const todayDate = new Date().toISOString().split('T')[0];
+      const targetDate = (req.query.date && req.query.date.trim()) ? req.query.date.trim() : todayDate;
+      const { routeId, busId, status } = req.query;
+
       let query = `
         SELECT 
-          a.id as attendance_id,
-          a.status as attendance_status,
-          a.timestamp as recorded_at,
           s.user_id as student_id,
           s.name as student_name,
           s.roll_number,
           s.emergency_contact,
-          b.bus_number,
-          b.registration_number,
-          r.name as route_name,
+          COALESCE(b.bus_number, s_b.bus_number, 101) as bus_number,
+          COALESCE(b.registration_number, s_b.registration_number, '') as registration_number,
+          COALESCE(r.name, s_r.name, 'Unassigned') as route_name,
+          COALESCE(t.route_id, s.route_id) as route_id,
+          COALESCE(t.bus_id, s.bus_id) as bus_id,
           st.name as stop_name,
+          COALESCE(a.status, 'absent') as attendance_status,
+          a.id as attendance_id,
+          a.timestamp as recorded_at,
           t.id as trip_id,
           t.status as trip_status
-        FROM attendance a
-        JOIN students s ON a.student_id = s.user_id
-        LEFT JOIN trips t ON a.trip_id = t.id
-        LEFT JOIN buses b ON COALESCE(t.bus_id, s.bus_id) = b.id
-        LEFT JOIN routes r ON COALESCE(t.route_id, s.route_id) = r.id
+        FROM students s
+        LEFT JOIN buses s_b ON s.bus_id = s_b.id
+        LEFT JOIN routes s_r ON s.route_id = s_r.id
         LEFT JOIN stops st ON s.pickup_stop_id = st.id
+        LEFT JOIN LATERAL (
+          SELECT a_sub.id, a_sub.status, a_sub.timestamp, a_sub.trip_id, t_sub.bus_id as trip_bus_id, t_sub.route_id as trip_route_id, t_sub.status as trip_sub_status
+          FROM attendance a_sub
+          JOIN trips t_sub ON a_sub.trip_id = t_sub.id
+          WHERE a_sub.student_id = s.user_id
+            AND a_sub.timestamp::text LIKE ($1 || '%')
+          ORDER BY a_sub.timestamp DESC, a_sub.id DESC
+          LIMIT 1
+        ) a ON true
+        LEFT JOIN trips t ON a.trip_id = t.id
+        LEFT JOIN buses b ON COALESCE(a.trip_bus_id, s.bus_id) = b.id
+        LEFT JOIN routes r ON COALESCE(a.trip_route_id, s.route_id) = r.id
         WHERE 1=1
       `;
-      const params = [];
+      const params = [targetDate];
 
-      if (date && date.trim()) {
-        params.push(date.trim());
-        query += ` AND (a.timestamp::text LIKE ($${params.length} || '%'))`;
-      }
       if (routeId) {
         params.push(parseInt(routeId, 10));
         query += ` AND COALESCE(t.route_id, s.route_id) = $${params.length}`;
@@ -127,10 +138,10 @@ export function createAdminRouter() {
       }
       if (status) {
         params.push(status);
-        query += ` AND a.status = $${params.length}`;
+        query += ` AND COALESCE(a.status, 'absent') = $${params.length}`;
       }
 
-      query += ` ORDER BY a.timestamp DESC, a.id DESC LIMIT 300`;
+      query += ` ORDER BY s.name ASC LIMIT 500`;
 
       const records = await db.query(query, params);
       res.json(records);
@@ -927,6 +938,20 @@ export function createAdminRouter() {
   });
 
   // 11. Admin Manage Stops CRUD
+  router.get('/stops', async (req, res, next) => {
+    try {
+      const stops = await db.query(`
+        SELECT st.*, r.name as route_name 
+        FROM stops st
+        LEFT JOIN routes r ON st.route_id = r.id
+        ORDER BY st.route_id ASC, st.sequence_order ASC, st.name ASC
+      `);
+      res.json(stops);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get('/routes/:id/stops', async (req, res, next) => {
     try {
       const stops = await db.query(
@@ -941,19 +966,24 @@ export function createAdminRouter() {
 
   router.post('/stops', async (req, res, next) => {
     const { routeId, name, latitude, longitude, sequenceOrder, scheduledTime } = req.body;
-    const validationErr = validateRequired(req.body, ['routeId', 'name', 'scheduledTime']);
+    const validationErr = validateRequired(req.body, ['routeId', 'name']);
     if (validationErr) return res.status(400).json({ error: validationErr });
 
     try {
       const lat = latitude ? parseFloat(latitude) : 18.5204;
       const lng = longitude ? parseFloat(longitude) : 73.8567;
-      const seq = sequenceOrder ? parseInt(sequenceOrder, 10) : 1;
+      let seq = sequenceOrder ? parseInt(sequenceOrder, 10) : null;
+      if (!seq) {
+        const lastStop = await db.get('SELECT MAX(sequence_order) as max_seq FROM stops WHERE route_id = $1', [routeId]);
+        seq = (parseInt(lastStop?.max_seq || '0', 10)) + 1;
+      }
+      const time = scheduledTime && scheduledTime.trim() ? scheduledTime.trim() : '08:00 AM';
 
       const resDb = await db.run(
         'INSERT INTO stops (route_id, name, latitude, longitude, sequence_order, scheduled_time) VALUES ($1, $2, $3, $4, $5, $6)',
-        [parseInt(routeId, 10), name.trim(), lat, lng, seq, scheduledTime.trim()]
+        [parseInt(routeId, 10), name.trim(), lat, lng, seq, time]
       );
-      res.json({ success: true, id: resDb.id });
+      res.json({ success: true, id: resDb.id, name: name.trim(), sequence_order: seq, scheduled_time: time });
     } catch (err) {
       next(err);
     }

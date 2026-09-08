@@ -114,7 +114,10 @@ export default function AdminDashboard({ token, onLogout, theme, toggleTheme }) 
 
   // Attendance Management State
   const [attendanceList, setAttendanceList] = useState([]);
-  const [attendanceFilterDate, setAttendanceFilterDate] = useState('');
+  const [attendanceFilterDate, setAttendanceFilterDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const [attendanceFilterRoute, setAttendanceFilterRoute] = useState('');
   const [attendanceFilterBus, setAttendanceFilterBus] = useState('');
   const [attendanceFilterStatus, setAttendanceFilterStatus] = useState('');
