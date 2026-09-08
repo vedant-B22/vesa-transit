@@ -207,6 +207,8 @@ export function createAdminRouter() {
     } catch (err) {
       next(err);
     }
+  });
+
   // 2c. Admin Manual Attendance Override / Status Update
   router.post('/attendance/override', async (req, res, next) => {
     try {
