@@ -5,8 +5,144 @@ import { authenticateToken, requireRole, verifyResourceOwnership } from '../midd
 import { validateRequired } from '../utils/helpers.js';
 import { broadcast } from '../services/websocket.js';
 
+// Haversine distance calculator in meters
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // metres
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export function createDriverRouter() {
   const router = Router();
+
+  // High-frequency REST endpoint for continuous GPS telemetry (<1 min precision & background resilience)
+  router.post('/trip/gps', authenticateToken, requireRole('driver', 'admin'), async (req, res, next) => {
+    const { tripId, latitude, longitude, speed } = req.body;
+    if (!tripId || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ error: 'tripId, latitude and longitude are required' });
+    }
+
+    try {
+      const trip = await db.get(
+        `SELECT t.*, r.estimated_duration_mins, r.id as route_id, b.bus_number
+         FROM trips t 
+         JOIN routes r ON t.route_id = r.id 
+         JOIN buses b ON t.bus_id = b.id
+         WHERE t.id = $1`,
+        [tripId]
+      );
+
+      if (!trip) return res.status(404).json({ error: 'Trip not found' });
+
+      const trafficCoefficient = 1.0 + (Math.sin(Date.now() / 100000) * 0.5 + 0.5) * 0.8;
+      const prediction = ai.predictDelay(15.2, trip.estimated_duration_mins, trafficCoefficient, 'clear');
+
+      await db.run(
+        'UPDATE trips SET current_lat = $1, current_lng = $2, speed = $3, eta_mins = $4 WHERE id = $5',
+        [latitude, longitude, speed || 0, prediction.predictedDurationMins, tripId]
+      );
+
+      await db.run(
+        'INSERT INTO gps_logs (trip_id, latitude, longitude, speed) VALUES ($1, $2, $3, $4)',
+        [tripId, latitude, longitude, speed || 0]
+      );
+
+      broadcast({
+        type: 'gps_broadcast',
+        tripId,
+        routeId: trip.route_id,
+        busId: trip.bus_id,
+        latitude,
+        longitude,
+        speed: speed || 0,
+        etaMins: prediction.predictedDurationMins,
+        delayMins: prediction.delayMins,
+        trafficLevel: prediction.trafficLevel
+      });
+
+      // Automatic stop proximity checks (<120m)
+      const isReverse = trip.direction === 'reverse';
+      const orderDir = isReverse ? 'DESC' : 'ASC';
+      const routeStops = await db.query(
+        `SELECT s.id, s.name, s.latitude, s.longitude, s.sequence_order
+         FROM stops s
+         WHERE s.route_id = $1
+         ORDER BY s.sequence_order ${orderDir}`,
+        [trip.route_id]
+      );
+
+      let reachedStopInfo = null;
+      for (let i = 0; i < routeStops.length; i++) {
+        const stop = routeStops[i];
+        if (stop.latitude && stop.longitude) {
+          const dist = calculateDistanceMeters(
+            latitude,
+            longitude,
+            parseFloat(stop.latitude),
+            parseFloat(stop.longitude)
+          );
+
+          if (dist <= 120 && trip.current_stop_id !== stop.id) {
+            const nextStop = routeStops[i + 1] || null;
+            await db.run(
+              'UPDATE trips SET current_stop_id = $1, next_stop_id = $2 WHERE id = $3',
+              [stop.id, nextStop ? nextStop.id : null, tripId]
+            );
+
+            // Auto-mark scheduled students for this stop as present if they were marked absent
+            const boardingStudents = await db.query(
+              'SELECT user_id FROM students WHERE pickup_stop_id = $1',
+              [stop.id]
+            );
+            for (const st of boardingStudents) {
+              const attRecord = await db.get(
+                'SELECT id, status FROM attendance WHERE trip_id = $1 AND student_id = $2',
+                [tripId, st.user_id]
+              );
+              if (attRecord && attRecord.status === 'absent') {
+                await db.run('UPDATE attendance SET status = \'present\' WHERE id = $1', [attRecord.id]);
+              }
+            }
+
+            reachedStopInfo = {
+              stopId: stop.id,
+              stopName: stop.name,
+              nextStopName: nextStop ? nextStop.name : 'Campus Destination'
+            };
+
+            broadcast({
+              type: 'stop_reached',
+              tripId,
+              routeId: trip.route_id,
+              busId: trip.bus_id,
+              stopId: stop.id,
+              stopName: stop.name,
+              sequenceOrder: stop.sequence_order,
+              nextStopName: nextStop ? nextStop.name : 'Campus Destination',
+              timestamp: new Date().toISOString()
+            });
+            break;
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        etaMins: prediction.predictedDurationMins,
+        reachedStop: reachedStopInfo
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // Get active or scheduled trip for driver (Supports reversible stop order)
   router.get('/trip/:driverId', authenticateToken, requireRole('driver', 'admin'), verifyResourceOwnership('driver'), async (req, res, next) => {

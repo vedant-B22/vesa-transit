@@ -61,7 +61,10 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
   const [geoError, setGeoError] = useState(null);
   const [isGpsActive, setIsGpsActive] = useState(false);
   const watchIdRef = useRef(null);
+  const gpsIntervalRef = useRef(null);
+  const wakeLockRef = useRef(null);
   const lastGpsSentTimeRef = useRef(0);
+  const lastRestGpsSentTimeRef = useRef(0);
   const tripRef = useRef(trip);
   tripRef.current = trip;
   const stopsRef = useRef(stops);
@@ -82,6 +85,27 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
+  };
+
+  // Screen Wake Lock helper for uninterrupted driving GPS
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator && !wakeLockRef.current) {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+        wakeLockRef.current.addEventListener('release', () => {
+          wakeLockRef.current = null;
+        });
+      }
+    } catch (err) {
+      console.warn('Wake Lock request warning:', err);
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
   };
 
   // Voice Assistant States
@@ -244,7 +268,7 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
     }
   };
 
-  // Real GPS Geolocation Watcher
+  // Real GPS Geolocation Watcher with High Accuracy, Zero Stale Age, Heartbeat, and Dual Broadcast
   const startRealGpsTracking = (tripId) => {
     if (!('geolocation' in navigator)) {
       setGeoError('GPS / Geolocation hardware is not supported on this device/browser.');
@@ -253,15 +277,19 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
 
     setGeoError(null);
     setIsGpsActive(true);
+    requestWakeLock();
 
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
     }
+    if (gpsIntervalRef.current !== null) {
+      clearInterval(gpsIntervalRef.current);
+    }
 
     const options = {
       enableHighAccuracy: true,
-      timeout: 15000,
-      maximumAge: 3000
+      timeout: 10000,
+      maximumAge: 0 // Never accept stale cached GPS coordinates
     };
 
     const handleSuccess = (position) => {
@@ -276,59 +304,63 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       });
       setGeoError(null);
 
-      // Check Proximity to Upcoming Stop (<150m) for Automatic Arrival
+      const currentTripId = tripId || (tripRef.current ? tripRef.current.id : null);
+      const now = Date.now();
+
+      // Check Proximity to Upcoming Stops (<120m) for Automatic Arrival
       const currentStops = stopsRef.current || [];
       const currentIdx = activeStopIndexRef.current || 0;
-      if (currentStops.length > 0 && currentStops[currentIdx]) {
-        const targetStop = currentStops[currentIdx];
-        if (targetStop.latitude && targetStop.longitude) {
-          const dist = calcDistanceMeters(
-            latitude,
-            longitude,
-            parseFloat(targetStop.latitude),
-            parseFloat(targetStop.longitude)
-          );
+      if (currentStops.length > 0) {
+        for (let i = currentIdx; i < Math.min(currentStops.length, currentIdx + 2); i++) {
+          const targetStop = currentStops[i];
+          if (targetStop && targetStop.latitude && targetStop.longitude) {
+            const dist = calcDistanceMeters(
+              latitude,
+              longitude,
+              parseFloat(targetStop.latitude),
+              parseFloat(targetStop.longitude)
+            );
 
-          if (dist <= 150 && lastAutoArrivedStopIdRef.current !== targetStop.id) {
-            lastAutoArrivedStopIdRef.current = targetStop.id;
-            const currentTripId = tripId || (tripRef.current ? tripRef.current.id : null);
-            if (currentTripId) {
-              authFetch(`${API_BASE}/driver/trip/action`, {
-                method: 'POST',
-                body: JSON.stringify({
-                  tripId: currentTripId,
-                  action: 'reach_stop',
-                  stopId: targetStop.id,
-                  lat: latitude,
-                  lng: longitude
-                })
-              }).then(() => {
-                fetchAttendance(currentTripId);
-                const nextStop = currentStops[currentIdx + 1];
-                if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-                  ws.current.send(JSON.stringify({
-                    type: 'stop_reached',
+            if (dist <= 120 && lastAutoArrivedStopIdRef.current !== targetStop.id) {
+              lastAutoArrivedStopIdRef.current = targetStop.id;
+              setActiveStopIndex(i);
+              if (currentTripId) {
+                authFetch(`${API_BASE}/driver/trip/action`, {
+                  method: 'POST',
+                  body: JSON.stringify({
                     tripId: currentTripId,
+                    action: 'reach_stop',
                     stopId: targetStop.id,
-                    stopName: targetStop.name,
-                    nextStopName: nextStop ? nextStop.name : 'Campus Gate',
-                    routeId: tripRef.current?.route_id,
-                    busId: tripRef.current?.bus_id
-                  }));
-                }
-                setDriverToast(`📍 Arrived at ${targetStop.name}! Automatic boarding activated.`);
-                setTimeout(() => setDriverToast(null), 4000);
-              }).catch(err => console.error('Auto reach stop error:', err));
+                    lat: latitude,
+                    lng: longitude
+                  })
+                }).then(() => {
+                  fetchAttendance(currentTripId);
+                  const nextStop = currentStops[i + 1];
+                  if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+                    ws.current.send(JSON.stringify({
+                      type: 'stop_reached',
+                      tripId: currentTripId,
+                      stopId: targetStop.id,
+                      stopName: targetStop.name,
+                      nextStopName: nextStop ? nextStop.name : 'Campus Destination',
+                      routeId: tripRef.current?.route_id,
+                      busId: tripRef.current?.bus_id
+                    }));
+                  }
+                  setDriverToast(`📍 Arrived at ${targetStop.name}! Auto-updated passengers.`);
+                  setTimeout(() => setDriverToast(null), 4000);
+                }).catch(err => console.error('Auto reach stop error:', err));
+              }
+              break;
             }
           }
         }
       }
 
-      // Throttled WebSocket broadcast (send every 5 seconds)
-      const now = Date.now();
-      if (now - lastGpsSentTimeRef.current >= 5000) {
+      // Fast WebSocket broadcast (every 2.5 seconds)
+      if (now - lastGpsSentTimeRef.current >= 2500) {
         lastGpsSentTimeRef.current = now;
-        const currentTripId = tripId || (tripRef.current ? tripRef.current.id : null);
         if (currentTripId && ws.current && ws.current.readyState === WebSocket.OPEN) {
           ws.current.send(JSON.stringify({
             type: 'gps_update',
@@ -339,19 +371,35 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
           }));
         }
       }
+
+      // Background REST GPS fallback telemetry (every 6 seconds)
+      if (now - lastRestGpsSentTimeRef.current >= 6000) {
+        lastRestGpsSentTimeRef.current = now;
+        if (currentTripId) {
+          authFetch(`${API_BASE}/driver/trip/gps`, {
+            method: 'POST',
+            body: JSON.stringify({
+              tripId: currentTripId,
+              latitude,
+              longitude,
+              speed: currentSpeedKmh
+            })
+          }).catch(() => {});
+        }
+      }
     };
 
     const handleError = (error) => {
       let errorMsg = 'Failed to acquire GPS location.';
       switch (error.code) {
         case error.PERMISSION_DENIED:
-          errorMsg = 'GPS Location Permission Denied. Please enable location permissions in your browser or device settings to broadcast live bus position.';
+          errorMsg = 'GPS Permission Denied. Enable device location to broadcast live bus position.';
           break;
         case error.POSITION_UNAVAILABLE:
-          errorMsg = 'GPS signal unavailable. Please ensure location services are enabled on your device.';
+          errorMsg = 'GPS signal unavailable. Ensure location services are active.';
           break;
         case error.TIMEOUT:
-          errorMsg = 'GPS location request timed out. Retrying...';
+          errorMsg = 'GPS location timed out. Acquiring fresh fix...';
           break;
         default:
           errorMsg = error.message || 'GPS location error.';
@@ -359,7 +407,16 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       setGeoError(errorMsg);
     };
 
+    // 1. Initial immediate fix
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, options);
+
+    // 2. Continuous watch stream
     watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, options);
+
+    // 3. Heartbeat polling interval (every 3 seconds) for maximum reliability
+    gpsIntervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, options);
+    }, 3000);
   };
 
   const stopRealGpsTracking = () => {
@@ -367,6 +424,11 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    if (gpsIntervalRef.current !== null) {
+      clearInterval(gpsIntervalRef.current);
+      gpsIntervalRef.current = null;
+    }
+    releaseWakeLock();
     setIsGpsActive(false);
   };
 
@@ -374,7 +436,21 @@ export default function DriverApp({ userId, token, onLogout, theme, toggleTheme 
     fetchTrip();
     initWebSocket();
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (tripRef.current && tripRef.current.status === 'active') {
+          startRealGpsTracking(tripRef.current.id);
+        }
+        if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+          initWebSocket();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       stopRealGpsTracking();
       if (ws.current) ws.current.close();
     };

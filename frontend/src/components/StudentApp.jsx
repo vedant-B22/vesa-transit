@@ -970,13 +970,52 @@ export default function StudentApp({ userId, token, onLogout, theme, toggleTheme
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 />
-                <Marker position={myStopCoords} icon={studentHomeIcon}>
-                  <Popup>My Boarding Stop: {profile.stop_name}</Popup>
-                </Marker>
 
+                {/* Route Path Polyline */}
+                {stops.length > 1 && (
+                  <Polyline 
+                    positions={stops.filter(s => s.latitude && s.longitude).map(s => [s.latitude, s.longitude])}
+                    color="#06b6d4"
+                    weight={4}
+                    opacity={0.75}
+                    dashArray="6, 8"
+                  />
+                )}
+
+                {/* All Route Stops */}
+                {stops.map((stop, idx) => {
+                  if (!stop.latitude || !stop.longitude) return null;
+                  const isMyStop = stop.id === profile.pickup_stop_id;
+                  const isCurrentBusStop = isTripActive && trip.current_stop_id === stop.id;
+                  return (
+                    <Marker 
+                      key={stop.id} 
+                      position={[stop.latitude, stop.longitude]} 
+                      icon={isMyStop ? studentHomeIcon : createStopIcon(idx + 1, isCurrentBusStop)}
+                    >
+                      <Popup>
+                        <div style={{ fontSize: '12px', color: '#0f172a' }}>
+                          <div style={{ fontWeight: '800' }}>Stop #{idx + 1}: {stop.name}</div>
+                          <div style={{ color: '#475569', fontSize: '11px' }}>Time: {stop.scheduled_time}</div>
+                          {isMyStop && <div style={{ color: '#06b6d4', fontWeight: '700', marginTop: '2px' }}>📍 Your Assigned Pickup Stop</div>}
+                          {isCurrentBusStop && <div style={{ color: '#10b981', fontWeight: '700', marginTop: '2px' }}>● Bus Currently at This Stop</div>}
+                        </div>
+                      </Popup>
+                    </Marker>
+                  );
+                })}
+
+                {/* Live Bus Position */}
                 {busCoords && (
                   <Marker position={busCoords} icon={busIcon}>
-                    <Popup>Bus {profile.bus_number}</Popup>
+                    <Popup>
+                      <div style={{ fontSize: '12px', color: '#0f172a' }}>
+                        <div style={{ fontWeight: '800' }}>🚌 Bus {profile.bus_number}</div>
+                        <div>Route: {profile.route_name}</div>
+                        <div>Speed: {Math.round(trip?.speed || 0)} km/h</div>
+                        <div>ETA: {trip?.eta_mins || 0} mins</div>
+                      </div>
+                    </Popup>
                   </Marker>
                 )}
 
